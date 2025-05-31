@@ -1,0 +1,97 @@
+# docker-compose.yml  (Compose v2 or v3 syntax)
+version: "3.9"           # any 3.x works – this is just the latest
+
+# ───── reusable block ────────────────────────────────────────────────────────
+x-sbro-common: &sbro
+  image: sbro-server:0.1-log_enabled
+  # one thread per container is safest when you pin to one core
+  environment:
+    JULIA_NUM_THREADS: "1"
+  networks: [ backend ]
+  # expose a unique host port for convenience; optional
+  # (feel free to delete 'ports:' if you only talk inside the network)
+
+services:
+  # ---------- copy-paste (or generate) 16 slim services ----------------------
+  sbro0:
+    <<: *sbro
+    cpuset: "0"          # bind to logical CPU 0
+    ports: [ "8100:8081" ]
+
+  sbro1:
+    <<: *sbro
+    cpuset: "1"
+    ports: [ "8101:8081" ]
+
+  sbro2:
+    <<: *sbro
+    cpuset: "2"
+    ports: [ "8102:8081" ]
+
+  sbro3:
+    <<: *sbro
+    cpuset: "3"
+    ports: [ "8103:8081" ]
+
+  sbro4:
+    <<: *sbro
+    cpuset: "4"
+    ports: [ "8104:8081" ]
+
+  sbro5:
+    <<: *sbro
+    cpuset: "5"
+    ports: [ "8105:8081" ]
+
+  sbro6:
+    <<: *sbro
+    cpuset: "6"
+    ports: [ "8106:8081" ]
+
+  sbro7:
+    <<: *sbro
+    cpuset: "7"
+    ports: [ "8107:8081" ]
+
+  sbro8:
+    <<: *sbro
+    cpuset: "8"
+    ports: [ "8108:8081" ]
+
+  sbro9:
+    <<: *sbro
+    cpuset: "9"
+    ports: [ "8109:8081" ]
+
+  sbro10:
+    <<: *sbro
+    cpuset: "10"
+    ports: [ "8110:8081" ]
+
+  sbro11:
+    <<: *sbro
+    cpuset: "11"
+    ports: [ "8111:8081" ]
+
+  sbro12:
+    <<: *sbro
+    cpuset: "12"
+    ports: [ "8112:8081" ]
+
+  sbro13:
+    <<: *sbro
+    cpuset: "13"
+    ports: [ "8113:8081" ]
+
+  sbro14:
+    <<: *sbro
+    cpuset: "14"
+    ports: [ "8114:8081" ]
+
+  sbro15:
+    <<: *sbro
+    cpuset: "15"
+    ports: [ "8115:8081" ]
+
+networks:
+  backend:

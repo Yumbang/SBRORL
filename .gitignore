@@ -8,3 +8,6 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Ruff-generated files
+*/.ruff_cache
