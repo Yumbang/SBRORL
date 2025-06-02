@@ -1,6 +1,3 @@
-# docker-compose.yml  (Compose v2 or v3 syntax)
-version: "3.9"           # any 3.x works – this is just the latest
-
 # ───── reusable block ────────────────────────────────────────────────────────
 x-sbro-common: &sbro
   image: sbro-server:0.1-log_enabled
