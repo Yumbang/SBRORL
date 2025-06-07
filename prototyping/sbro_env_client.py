@@ -1,7 +1,7 @@
 # %% Testing http server communication
 import httpx
 
-server_url = "http://localhost:8080/"
+server_url = "http://localhost:8101/"
 
 r = httpx.get(server_url + "health")
 

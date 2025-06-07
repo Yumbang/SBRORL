@@ -17,7 +17,7 @@ class SBROEnv(gym.Env):
         base_url: str,
         scenario_condition: dict,
         objective_condition: dict,
-        dt: float,
+        dt: float = 30.0,
         initial_action=None,
         timeout: float = 5.0,
     ):
@@ -40,32 +40,38 @@ class SBROEnv(gym.Env):
 
         # Define action space: 2 continuous + 1 discrete (binary)
         # Using a Tuple space: (Box(2,), Discrete(2))
-        self.action_space = spaces.Tuple(
-            (
-                spaces.Box(
-                    low=-1.0, high=1.0, shape=(2,), dtype=np.float32
-                ),  # continuous actions
-                spaces.Discrete(2),  # binary action (0 or 1)
-            )
-        )
+        self.action_space = spaces.Tuple((
+            spaces.Box(
+                low=-1.0, high=1.0, shape=(2,), dtype=np.float32
+            ),  # continuous actions
+            spaces.Discrete(2),  # binary action (0 or 1)
+        ))
         # If needed, allow user to adjust Box bounds later to actual limits.
         # Define observation space: 11 continuous values (placeholder range -inf to inf)
         self.obs_range_dict = {
-            'T_feed': [0.0, 50.0],      # °C
-            'C_feed': [0.0, 1.0],       # kg/m3
-            'C_pipe_c_out': [0.0, 1.0], # kg/m3
-            'P_m_in': [0.0, 10e5],      # Pa
-            'P_m_out': [0.0, 10e5],     # Pa
-            'Q_circ': [0.0, 10.0],      # m3/hr
-            'Q_disp': [0.0, 10.0],      # m3/hr
-            'Q_perm': [0.0, 10.0],      # m3/hr
-            'C_perm': [0.0, 0.1],       # kg/m3
-            'time_remaining': [-86400.0, 86400.0],  # seconds
-            'V_perm_remaining': [0.0, 32.0]         # m3
+            "T_feed": [0.0, 50.0],  # °C
+            "C_feed": [0.0, 1.0],  # kg/m3
+            "C_pipe_c_out": [0.0, 1.0],  # kg/m3
+            "P_m_in": [0.0, 10e5],  # Pa
+            "P_m_out": [0.0, 10e5],  # Pa
+            "Q_circ": [0.0, 10.0],  # m3/hr
+            "Q_disp": [0.0, 10.0],  # m3/hr
+            "Q_perm": [0.0, 10.0],  # m3/hr
+            "C_perm": [0.0, 0.1],  # kg/m3
+            "time_remaining": [-86400.0, 86400.0],  # seconds
+            "V_perm_remaining": [0.0, 32.0],  # m3
         }
 
-        obs_low = np.array([obs_range[0] for (obs_var, obs_range) in self.obs_range_dict.items()], dtype=np.float32)
-        obs_high = np.array([obs_range[1] for (obs_var, obs_range) in self.obs_range_dict.items()], dtype=np.float32)
+        self.action_range_dict = {"Q0": [4.0, 6.0], "R_sp": [0.1, 0.9], "mode": None}
+
+        obs_low = np.array(
+            [obs_range[0] for (_, obs_range) in self.obs_range_dict.items()],
+            dtype=np.float32,
+        )
+        obs_high = np.array(
+            [obs_range[1] for (_, obs_range) in self.obs_range_dict.items()],
+            dtype=np.float32,
+        )
 
         self.observation_space = spaces.Box(
             low=obs_low, high=obs_high, dtype=np.float32
@@ -76,11 +82,40 @@ class SBROEnv(gym.Env):
             # Validate initial_action format (should be tuple of (array, int) or list of 3 values)
             self.initial_action = initial_action
         else:
-            # Default initial action: zeros for continuous, 0 for discrete
-            self.initial_action = (np.zeros(2, dtype=np.float32), 0)
+            # Default initial action: 0.5 for continuous, 0 for discrete
+            self.initial_action = [0.5, 0.5, 0.0]
+            self.initial_action = self._decode_action(self.initial_action)
 
         # Initialize HTTP client (one per environment instance for thread-safety and isolation)
         self.client = httpx.Client(timeout=self.timeout)
+
+        # Hard reset the environment before starting.
+        # TODO: Modify server-side handler to receive dt and time_max from client.
+        # (Issue: the payloads are treated as Int, not Float)
+        hard_reset_payload = {"dt": None, "time_max": None}
+        # Send POST request to /hard_reset
+        try:
+            hard_reset_json_payload = orjson.dumps(
+                hard_reset_payload, option=orjson.OPT_SERIALIZE_NUMPY
+            )
+            resp = self.client.post(
+                f"{self.base_url}/hard_reset",
+                headers={"Content-Type": "application/json"},
+                content=hard_reset_json_payload,
+            )
+            resp.raise_for_status()
+        except httpx.RequestError as e:
+            raise RuntimeError(f"HTTP request failed during step: {e}") from e
+        except httpx.HTTPStatusError as e:
+            status = e.response.status_code if e.response is not None else "N/A"
+            raise RuntimeError(
+                f"step returned status {status}, URL: {e.request.url!r}"
+            ) from e
+
+        print(
+            f"🔗 Connection to SBRO backend @({self.base_url}) successfully established.\n"
+            "🚀 Hard reset is completed - the environment is ready!"
+        )
 
     def reset(self, *, seed: int = None, options: dict = None):
         """
@@ -109,12 +144,24 @@ class SBROEnv(gym.Env):
                 self.initial_action = options["initial_action"]
         # 1. Call /reset_scenario to set up the scenario and objective
         try:
+            scenario_condition = [
+                self.scenario_condition["T_feed_mean"],
+                self.scenario_condition["T_feed_std"],
+                self.scenario_condition["C_feed_mean"],
+                self.scenario_condition["C_feed_std"],
+            ]
+            objective_condition = [
+                self.objective_condition["time_objective_low"],
+                self.objective_condition["time_objective_high"],
+                self.objective_condition["V_perm_objective_low"],
+                self.objective_condition["V_perm_objective_high"],
+            ]
             reset_scenario_json_payload = orjson.dumps(
                 {
-                    "scenario_condition": self.scenario_condition,
-                    "objective_condition": self.objective_condition,
+                    "scenario_condition": scenario_condition,
+                    "objective_condition": objective_condition,
                 },
-                options=orjson.OPT_SERIALIZE_NUMPY,
+                option=orjson.OPT_SERIALIZE_NUMPY,
             )
 
             resp = self.client.post(
@@ -131,8 +178,6 @@ class SBROEnv(gym.Env):
             raise RuntimeError(
                 f"reset_scenario returned status {status}, URL: {e.request.url!r}"
             ) from e
-        # (We assume no important content is needed from /reset_scenario response,
-        # as it's likely just an acknowledgment. If needed, we could parse it here.)
 
         # 2. Call /reset to reset the state and get initial observation
         # Prepare payload for /reset
@@ -225,14 +270,14 @@ class SBROEnv(gym.Env):
         else:
             action_cont_list = list(cont_part)
 
-        # TODO: Denormalize action and construct payload
-
         action_disc_val = int(disc_part)
         action_payload = action_cont_list + [action_disc_val]
+        action_payload = self._decode_action(action=action_payload)
+
         # Send POST request to /step
         try:
             action_json_payload = orjson.dumps(
-                action_payload, option=orjson.OPT_SERIALIZE_NUMPY
+                {"action": action_payload}, option=orjson.OPT_SERIALIZE_NUMPY
             )
             resp = self.client.post(
                 f"{self.base_url}/step",
@@ -277,13 +322,63 @@ class SBROEnv(gym.Env):
                 ) from e
         return obs, rew, terminated, truncated, info
 
-    def render(self, mode="human"):
+    def render(self, mode="text"):
         """
         Rendering is not implemented. This method is a no-op for now.
         """
         # We can optionally print the latest state or a message if needed.
         # For now, just do nothing or return no visualization.
+
         return None
+
+    def reset_scenario(
+        self, new_scneario_condition: dict, new_objective_condition: dict
+    ):
+        """
+        Reset scenario generation setting with new scenario and objective conditions.
+        The setting is used when starting a new episode with .reset().
+        """
+        self.scenario_condition = new_scneario_condition
+        self.objective_condition = new_objective_condition
+        return None
+
+    def hard_reset(self, dt: float, time_max: float):
+        hard_reset_payload = {"dt": dt, "time_max": time_max}
+        # Send POST request to /step
+        try:
+            hard_reset_json_payload = orjson.dumps(
+                hard_reset_payload, option=orjson.OPT_SERIALIZE_NUMPY
+            )
+            resp = self.client.post(
+                f"{self.base_url}/hard_reset",
+                headers={"Content-Type": "application/json"},
+                content=hard_reset_json_payload,
+            )
+            resp.raise_for_status()
+        except httpx.RequestError as e:
+            raise RuntimeError(f"HTTP request failed during step: {e}") from e
+        except httpx.HTTPStatusError as e:
+            status = e.response.status_code if e.response is not None else "N/A"
+            raise RuntimeError(
+                f"step returned status {status}, URL: {e.request.url!r}"
+            ) from e
+
+        return None
+
+    def _decode_action(self, action: list):
+        """
+        Decode normalized action into usable values for Julia SBRO environment.
+        """
+        decoded_Q0 = (action[0] + 1.0) / 2 * (
+            self.action_range_dict["Q0"][1] - self.action_range_dict["Q0"][0]
+        ) + self.action_range_dict["Q0"][0]
+
+        decoded_R_sp = (action[1] + 1.0) / 2 * (
+            self.action_range_dict["R_sp"][1] - self.action_range_dict["R_sp"][0]
+        ) + self.action_range_dict["R_sp"][0]
+
+        decoded_mode = action[2]
+        return np.array([decoded_Q0, decoded_R_sp, decoded_mode])
 
     def close(self):
         """Clean up the environment (close HTTP client)."""
