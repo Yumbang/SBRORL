@@ -17,6 +17,7 @@ class SBROEnv(gym.Env):
         base_url: str,
         scenario_condition: dict,
         objective_condition: dict,
+        reward_conf: dict,
         dt: float = 30.0,
         initial_action=None,
         timeout: float = 5.0,
@@ -37,17 +38,20 @@ class SBROEnv(gym.Env):
         self.objective_condition = objective_condition
         self.dt = dt
         self.timeout = timeout
+        self.reward_conf = reward_conf
 
         # Define action space: 2 continuous + 1 discrete (binary)
         # Using a Tuple space: (Box(2,), Discrete(2))
-        self.action_space = spaces.Tuple((
-            spaces.Box(
-                low=-1.0, high=1.0, shape=(2,), dtype=np.float32
-            ),  # continuous actions
-            spaces.Discrete(2),  # binary action (0 or 1)
-        ))
+        self.action_space = spaces.Tuple(
+            (
+                spaces.Box(
+                    low=-1.0, high=1.0, shape=(2,), dtype=np.float32
+                ),  # continuous actions
+                spaces.Discrete(2),  # binary action (0 or 1)
+            )
+        )
         # If needed, allow user to adjust Box bounds later to actual limits.
-        # Define observation space: 11 continuous values (placeholder range -inf to inf)
+        # Define observation space: 11 continuous values
         self.obs_range_dict = {
             "T_feed": [0.0, 50.0],  # °C
             "C_feed": [0.0, 1.0],  # kg/m3
@@ -88,6 +92,9 @@ class SBROEnv(gym.Env):
 
         # Initialize HTTP client (one per environment instance for thread-safety and isolation)
         self.client = httpx.Client(timeout=self.timeout)
+        print(
+            f"🔗 Connection to SBRO backend @({self.base_url}) successfully established."
+        )
 
         # Hard reset the environment before starting.
         # TODO: Modify server-side handler to receive dt and time_max from client.
@@ -112,10 +119,29 @@ class SBROEnv(gym.Env):
                 f"step returned status {status}, URL: {e.request.url!r}"
             ) from e
 
-        print(
-            f"🔗 Connection to SBRO backend @({self.base_url}) successfully established.\n"
-            "🚀 Hard reset is completed - the environment is ready!"
-        )
+        print(f"🚀 Hard reset is completed @({self.base_url})")
+
+        reward_conf_payload = self.reward_conf
+        # Send POST request to /update_reward_conf
+        try:
+            reward_conf_json_payload = orjson.dumps(
+                reward_conf_payload, option=orjson.OPT_SERIALIZE_NUMPY
+            )
+            resp = self.client.post(
+                f"{self.base_url}/update_reward_conf",
+                headers={"Content-Type": "application/json"},
+                content=reward_conf_json_payload,
+            )
+            resp.raise_for_status()
+        except httpx.RequestError as e:
+            raise RuntimeError(f"HTTP request failed during step: {e}") from e
+        except httpx.HTTPStatusError as e:
+            status = e.response.status_code if e.response is not None else "N/A"
+            raise RuntimeError(
+                f"step returned status {status}, URL: {e.request.url!r}"
+            ) from e
+
+        return None
 
     def reset(self, *, seed: int = None, options: dict = None):
         """
@@ -353,6 +379,30 @@ class SBROEnv(gym.Env):
                 f"{self.base_url}/hard_reset",
                 headers={"Content-Type": "application/json"},
                 content=hard_reset_json_payload,
+            )
+            resp.raise_for_status()
+        except httpx.RequestError as e:
+            raise RuntimeError(f"HTTP request failed during step: {e}") from e
+        except httpx.HTTPStatusError as e:
+            status = e.response.status_code if e.response is not None else "N/A"
+            raise RuntimeError(
+                f"step returned status {status}, URL: {e.request.url!r}"
+            ) from e
+
+        return None
+
+    def update_reward_conf(self, reward_conf: dict):
+        self.reward_conf = reward_conf
+        reward_conf_payload = reward_conf
+        # Send POST request to /update_reward_conf
+        try:
+            reward_conf_json_payload = orjson.dumps(
+                reward_conf_payload, option=orjson.OPT_SERIALIZE_NUMPY
+            )
+            resp = self.client.post(
+                f"{self.base_url}/update_reward_conf",
+                headers={"Content-Type": "application/json"},
+                content=reward_conf_json_payload,
             )
             resp.raise_for_status()
         except httpx.RequestError as e:
