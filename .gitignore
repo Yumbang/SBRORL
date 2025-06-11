@@ -11,3 +11,6 @@ wheels/
 
 # Ruff-generated files
 */.ruff_cache
+
+# Result files
+result

@@ -71,12 +71,16 @@ async def bench_one_server(url: str, n_iter: int, parallel: int, results: list):
                 duration = task.result()
                 done_count += 1
                 # collect *after* we have the duration
-                results.append({
-                    "port": port,
-                    "iteration": done_count,
-                    "duration_sec": duration,
-                    "ts_utc": dt.datetime.utcnow().isoformat(timespec="microseconds"),
-                })
+                results.append(
+                    {
+                        "port": port,
+                        "iteration": done_count,
+                        "duration_sec": duration,
+                        "ts_utc": dt.datetime.utcnow().isoformat(
+                            timespec="microseconds"
+                        ),
+                    }
+                )
                 if done_count < n_iter:
                     pending.add(asyncio.create_task(one_cycle(client, url)))
 
