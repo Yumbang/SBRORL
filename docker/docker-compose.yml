@@ -1,6 +1,6 @@
 # ───── reusable block ────────────────────────────────────────────────────────
 x-sbro-common: &sbro
-  image: sbro-server:0.1.2-log-enabled-dev
+  image: sbro-server:0.1.4.0-log-reduced-dev
   # one thread per container is safest when you pin to one core
   environment:
     JULIA_NUM_THREADS: "1"
@@ -9,7 +9,7 @@ x-sbro-common: &sbro
   # (feel free to delete 'ports:' if you only talk inside the network)
 
 services:
-  # ---------- copy-paste (or generate) 16 slim services ----------------------
+  # ---------- copy-paste (or generate) 25 slim services ----------------------
   sbro0:
     <<: *sbro
     cpuset: "0"          # bind to logical CPU 0
@@ -89,6 +89,51 @@ services:
     <<: *sbro
     cpuset: "15"
     ports: [ "8115:8081" ]
+
+  sbro16:
+    <<: *sbro
+    cpuset: "16"
+    ports: [ "8116:8081" ]
+
+  sbro17:
+    <<: *sbro
+    cpuset: "17"
+    ports: [ "8117:8081" ]
+
+  sbro18:
+    <<: *sbro
+    cpuset: "18"
+    ports: [ "8118:8081" ]
+
+  sbro19:
+    <<: *sbro
+    cpuset: "19"
+    ports: [ "8119:8081" ]
+
+  sbro20:
+    <<: *sbro
+    cpuset: "20"
+    ports: [ "8120:8081" ]
+
+  sbro21:
+    <<: *sbro
+    cpuset: "21"
+    ports: [ "8121:8081" ]
+
+  sbro22:
+    <<: *sbro
+    cpuset: "22"
+    ports: [ "8122:8081" ]
+
+  sbro23:
+    <<: *sbro
+    cpuset: "23"
+    ports: [ "8123:8081" ]
+
+  sbro24:
+    <<: *sbro
+    cpuset: "24"
+    ports: [ "8124:8081" ]
 
 networks:
   backend:
