@@ -160,14 +160,15 @@ class SBROEnv(gym.Env):
             # We call super().reset() to be compliant with Gymnasium's seeding procedure.
             super().reset(seed=seed)
         # Optionally, scenario_condition or objective_condition could be changed via options
-        if options is not None:
-            # Allow dynamic scenario/objective override via options if provided
-            if "scenario_condition" in options:
-                self.scenario_condition = options["scenario_condition"]
-            if "objective_condition" in options:
-                self.objective_condition = options["objective_condition"]
-            if "initial_action" in options:
-                self.initial_action = options["initial_action"]
+        # if options is not None:
+        #     # Allow dynamic scenario/objective override via options if provided
+        #     if "scenario_condition" in options:
+        #         self.scenario_condition = options["scenario_condition"]
+        #     if "objective_condition" in options:
+        #         self.objective_condition = options["objective_condition"]
+        #     if "initial_action" in options:
+        #         self.initial_action = options["initial_action"]
+
         # 1. Call /reset_scenario to set up the scenario and objective
         try:
             scenario_condition = [

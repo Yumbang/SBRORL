@@ -10,7 +10,37 @@ import polars as pl
 
 # Import your custom environment and the necessary wrappers
 from gymnasium_env.SBROEnvironment import SBROEnv
-from gymnasium.wrappers import NormalizeObservation
+import gymnasium as gym
+from gymnasium import spaces
+from gymnasium.wrappers import NormalizeObservation, TransformObservation
+
+
+# class MinMaxNormalizeObservation(gym.ObservationWrapper):
+#     """
+#     Applies min-max scaling to the observations of an environment to a [0, 1] range.
+#     This version correctly handles both `step` and `reset` methods.
+#     """
+#     def __init__(self, env: gym.Env):
+#         super().__init__(env)
+#         if not isinstance(env.observation_space, spaces.Box):
+#             raise ValueError("This wrapper only works with Box observation spaces.")
+        
+#         self.obs_low = self.observation_space.low
+#         self.obs_high = self.observation_space.high
+#         self.obs_range = self.obs_high - self.obs_low
+#         # Avoid division by zero
+#         self.obs_range[self.obs_range == 0] = 1e-6
+        
+#         # Update the environment's observation space to reflect the new [0, 1] range
+#         self.observation_space = spaces.Box(
+#             low=0.0, high=1.0, shape=self.observation_space.shape, dtype=np.float32
+#         )
+
+#     def observation(self, obs: np.ndarray) -> np.ndarray:
+#         """Applies the min-max scaling to the observation from a step."""
+#         clipped_obs = np.clip(obs, self.obs_low, self.obs_high)
+#         scaled_obs = (clipped_obs - self.obs_low) / self.obs_range
+#         return scaled_obs.astype(np.float32)
 
 
 def sbro_env_creator(env_config):
@@ -39,7 +69,17 @@ def sbro_env_creator(env_config):
         dt=env_config.get("dt", 30.0),  # Global settings can still be used
     )
     # --- END: CORRECTED SECTION ---
+    # return MinMaxNormalizeObservation(env)
+    obs_low = env.observation_space.low
+    obs_high = env.observation_space.high
+
+    new_observation_space = spaces.Box(
+        low=0.0, high=1.0, shape=env.observation_space.shape, dtype=np.float32
+    )   
+
+    # return TransformObservation(env, lambda obs: )
     return NormalizeObservation(env)
+    # return env
 
 
 def main():
@@ -47,9 +87,10 @@ def main():
     ray.init(num_gpus=1)
     print("Ray Cluster Resources:", ray.cluster_resources())
 
-    num_environments = 16
+    num_environments = 24
+    # num_environments = 4
     ports = range(8100, 8100 + num_environments)
-    temp_means = np.linspace(10.0, 25.0, num=num_environments)
+    temp_means = np.linspace(15.0, 25.0, num=num_environments)
 
     SAVE_DIR = os.path.join("./result", str(dt.datetime.now()))
     os.makedirs(SAVE_DIR, exist_ok=True)
@@ -104,6 +145,7 @@ def main():
 
             for act_dim in range(cont_acts.shape[1]):
                 episode_dict[f"Act_{act_dim}"] = cont_acts[:, act_dim]
+
             episode_dict["Act_2"] = disc_acts
 
             episode_dict["Reward"] = rewards
@@ -113,6 +155,7 @@ def main():
             )
             episode_df = pl.DataFrame(episode_dict)
             episode_df.write_parquet(save_path)
+            print(f"Reward: {episode_df['Reward'].sum():.2f}")
 
     worker_configs = []
     for i in range(num_environments):
@@ -126,15 +169,16 @@ def main():
             },
             "objective_condition": {
                 "time_objective_low": 28800.0,
-                "time_objective_high": 43200.0,
-                "V_perm_objective_low": 12.0,
+                "time_objective_high": 28800.0,
+                "V_perm_objective_low": 14.0,
                 "V_perm_objective_high": 16.0,
             },
             "reward_conf": {
                 "penalty_truncation": 1.0,
-                "penalty_τ": 0.01,
-                "penalty_SEC": (0.01) / 3600.0 / 1000.0,
-                "incentive_V_perm": 0.1,
+                "penalty_τ": 1e-6,
+                "penalty_SEC": (0.5) / 3600.0 / 1000.0,
+                "incentive_V_perm": 0.0,
+                "penalty_V_disp": 0.25,
             },
         }
         worker_configs.append(config)
@@ -165,7 +209,7 @@ def main():
             model={
                 # Use a Long Short-Term Memory (LSTM) network.
                 # You could also use "use_gru": True
-                "use_lstm": True,
+                "use_gru": True,
                 # The number of hidden units in the LSTM layer.
                 # This is the size of the agent's memory.
                 "lstm_cell_size": 256,
@@ -180,7 +224,7 @@ def main():
         .callbacks(EpisodeReturn)
     )
 
-    stop_criteria = {"training_iteration": 500}
+    stop_criteria = {"training_iteration": 1500}
     storage_path = os.path.abspath(SAVE_DIR)
 
     run_config = tune.RunConfig(
