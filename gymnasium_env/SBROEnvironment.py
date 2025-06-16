@@ -50,20 +50,23 @@ class SBROEnv(gym.Env):
                 spaces.Discrete(2),  # binary action (0 or 1)
             )
         )
+
+        # self.last_action = np.zeros(3, dtype=np.float32)
+
         # If needed, allow user to adjust Box bounds later to actual limits.
         # Define observation space: 11 continuous values
         self.obs_range_dict = {
             "T_feed": [0.0, 50.0],  # °C
             "C_feed": [0.0, 1.0],  # kg/m3
-            "C_pipe_c_out": [0.0, 1.0],  # kg/m3
-            "P_m_in": [0.0, 10e5],  # Pa
-            "P_m_out": [0.0, 10e5],  # Pa
+            "C_pipe_c_out": [0.0, 10.0],  # kg/m3
+            "P_m_in": [0.0, 25e5],  # Pa
+            "P_m_out": [0.0, 25e5],  # Pa
             "Q_circ": [0.0, 10.0],  # m3/hr
             "Q_disp": [0.0, 10.0],  # m3/hr
             "Q_perm": [0.0, 10.0],  # m3/hr
-            "C_perm": [0.0, 0.1],  # kg/m3
+            "C_perm": [0.0, 0.5],  # kg/m3
             "time_remaining": [-86400.0, 86400.0],  # seconds
-            "V_perm_remaining": [0.0, 32.0],  # m3
+            "V_perm_remaining": [-16.0, 32.0],  # m3
         }
 
         self.action_range_dict = {"Q0": [4.0, 6.0], "R_sp": [0.1, 0.9], "mode": None}
@@ -257,6 +260,8 @@ class SBROEnv(gym.Env):
         if "observation" not in data or "info" not in data:
             raise RuntimeError(f"reset response JSON missing keys: {data}")
 
+        # self.last_action = init_action
+
         observation = np.array(data["observation"], dtype=np.float32)
         info = data.get("info", {})  # info might be present as dict
 
@@ -333,6 +338,9 @@ class SBROEnv(gym.Env):
             or "truncated" not in data
         ):
             raise RuntimeError(f"step response JSON missing keys: {data}")
+
+        # self.last_action =
+
         # Extract and convert to appropriate types
         obs = np.array(data["observation"], dtype=np.float32)
         rew = float(data["reward"])
