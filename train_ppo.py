@@ -57,6 +57,7 @@ class MinMaxNormalizeObservation(gym.ObservationWrapper):
 
         return scaled_obs.astype(np.float32)
 
+
 def sbro_env_creator(env_config):
     """
     Creates, configures, and wraps the SBROEnv.
@@ -95,9 +96,6 @@ ENV_CONFIG = {
 }
 
 
-
-
-
 def main():
     # --- START: MODIFIED SECTION 1 ---
     # Step 1: Explicitly tell Ray that 1 GPU is available for the whole cluster.
@@ -112,7 +110,7 @@ def main():
 
     SAVE_DIR = os.path.join("./result", str(dt.datetime.now()))
 
-    os.makedirs(os.path.join(SAVE_DIR, 'parquets'), exist_ok=True)
+    os.makedirs(os.path.join(SAVE_DIR, "parquets"), exist_ok=True)
 
     class EpisodeReturn(RLlibCallback):
         def __init__(self):
