@@ -64,12 +64,12 @@ class SBROEnv(gym.Env):
             "Q_circ": [0.0, 10.0],  # m3/hr
             "Q_disp": [0.0, 10.0],  # m3/hr
             "Q_perm": [0.0, 10.0],  # m3/hr
-            "C_perm": [0.0, 0.5],  # kg/m3
+            "C_perm": [0.0, 0.25],  # kg/m3
             "time_remaining": [-86400.0, 86400.0],  # seconds
             "V_perm_remaining": [-16.0, 32.0],  # m3
         }
 
-        self.action_range_dict = {"Q0": [4.0, 6.0], "R_sp": [0.1, 0.9], "mode": None}
+        self.action_range_dict = {"Q0": [4.0, 6.0], "R_sp": [0.1, 0.3], "mode": None}
 
         obs_low = np.array(
             [obs_range[0] for (_, obs_range) in self.obs_range_dict.items()],
