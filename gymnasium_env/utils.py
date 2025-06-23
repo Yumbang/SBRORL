@@ -70,3 +70,33 @@ def sbro_env_creator(env_config):
 
     # return NormalizeObservation(env)
     return MinMaxNormalizeObservation(env)
+
+
+def generate_entropy_schedule(
+    max_timesteps: int, start_value: float, end_value: float, num_points: int = 10
+) -> list:
+    """
+    Generates a linear schedule for a hyperparameter like entropy_coef.
+
+    This is useful for annealing a value over the course of training, for example,
+    to encourage more exploration at the beginning and less at the end.
+
+    Args:
+        max_timesteps: The total number of training timesteps over which to schedule.
+        start_value: The initial value of the hyperparameter (at timestep 0).
+        end_value: The final value of the hyperparameter (at max_timesteps).
+        num_points: The number of points to define in the schedule.
+
+    Returns:
+        A list of [timestep, value] pairs formatted for RLlib's scheduling config.
+    """
+    # Generate `num_points` evenly spaced timesteps from 0 to max_timesteps.
+    timesteps = np.linspace(0, max_timesteps, num=num_points, dtype=int)
+
+    # Generate `num_points` linearly interpolated values from start_value to end_value.
+    values = np.linspace(start_value, end_value, num=num_points)
+
+    # Combine them into the desired format: [[timestep, value], ...]
+    schedule = [[int(t), float(v)] for t, v in zip(timesteps, values)]
+
+    return schedule

@@ -1,6 +1,6 @@
 # ───── reusable block ────────────────────────────────────────────────────────
 x-sbro-common: &sbro
-  image: sbro-server:0.1.5.1-log-reduced-dev
+  image: sbro-server:0.2.2.0-log-reduced-dev
   # one thread per container is safest when you pin to one core
   environment:
     JULIA_NUM_THREADS: "1"
