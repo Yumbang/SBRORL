@@ -89,8 +89,8 @@ class SBROEnv(gym.Env):
             # Validate initial_action format (should be tuple of (array, int) or list of 3 values)
             self.initial_action = initial_action
         else:
-            # Default initial action: 0.5 for continuous, 0 for discrete
-            self.initial_action = [0.5, 0.5, 0.0]
+            # Default initial action: 0.0 for continuous, 0 for discrete
+            self.initial_action = [0.0, 0.0, 0.0]
             self.initial_action = self._decode_action(self.initial_action)
 
         # Initialize HTTP client (one per environment instance for thread-safety and isolation)
@@ -125,6 +125,7 @@ class SBROEnv(gym.Env):
         print(f"🚀 Hard reset is completed @({self.base_url})")
 
         reward_conf_payload = self.reward_conf
+
         # Send POST request to /update_reward_conf
         try:
             reward_conf_json_payload = orjson.dumps(
