@@ -33,13 +33,130 @@ class MinMaxNormalizeObservation(gym.ObservationWrapper):
         return scaled_obs.astype(np.float32)
 
 
-# class DiscreteSBROWrapper(gym.ActionWrapper):
-#     """
-#     Applies action discretization for Q_0 and R_sp, by letting the agent add or subtract
-#     values from the previous action.
-#     """
-#     def __init__(self, env: gym.Env):
-#         super().__init__(env)
+class FlattenedActionWrapper(gym.ActionWrapper):
+    """
+    Convert the SBROEnv hybrid action space
+        (Box(2,), Discrete(2))
+    into a single Discrete(total_actions) space suitable for RLlib's
+    ParametricActionsModel.  Also provides a flat 0/1 action_mask.
+    """
+
+    def __init__(self, env: gym.Env, num_discrete_steps: int = 7):
+        """
+        Args
+        ----
+        env : SBROEnv
+        num_discrete_steps : odd integer  ≥3.
+            The two continuous controls are quantised into this many bins each.
+            Example: 7 → deltas [-3 … +3], centre bin = no-op.
+        """
+        super().__init__(env)
+
+        if num_discrete_steps % 2 == 0:
+            raise ValueError(
+                f"num_discrete_steps must be odd; got {num_discrete_steps}"
+            )
+
+        self.num_steps = num_discrete_steps
+        self.num_steps_aside = (num_discrete_steps - 1) // 2
+
+        # Total flat actions = bins₁ × bins₂ × modes
+        self.total_actions = num_discrete_steps * num_discrete_steps * 2
+        self.action_space = spaces.Discrete(self.total_actions)
+
+        # Observation = raw obs + FLAT mask
+        self.observation_space = spaces.Dict(
+            {
+                "observations": env.observation_space,  # unchanged
+                "action_mask": spaces.Box(
+                    low=0.0,
+                    high=1.0,
+                    shape=(self.total_actions,),
+                    dtype=np.float32,
+                ),
+            }
+        )
+        # self.observation_space = env.observation_space
+
+        # Pre-compute step size table for the two continuous controls
+        step_unit = 1.0 / (60.0 * 10.0 * 2.0 * self.num_steps_aside) * env.env.dt
+        self.deltas = np.linspace(
+            -self.num_steps_aside * step_unit,
+            +self.num_steps_aside * step_unit,
+            num_discrete_steps,
+            dtype=np.float32,
+        )
+
+        # Track current continuous state
+        self._a_cont = np.zeros(2, dtype=np.float32)
+
+    # ------------------------------------------------------------------
+    # Helpers to map flat index  ↔  (idx1, idx2, mode)
+    # ------------------------------------------------------------------
+    def _index_to_components(self, index: int):
+        mode = index % 2
+        idx = index // 2
+        idx2 = idx % self.num_steps
+        idx1 = idx // self.num_steps
+        return idx1, idx2, mode
+
+    # ------------------------------------------------------------------
+    # Gymnasium ActionWrapper interface
+    # ------------------------------------------------------------------
+    def action(self, flat_index: int):
+        """
+        Convert the flat discrete index into the original hybrid tuple:
+            (np.array([Q0_delta, R_sp_delta], dtype=float32),  int(mode))
+        """
+        idx1, idx2, mode = self._index_to_components(flat_index)
+        delta_vec = np.array([self.deltas[idx1], self.deltas[idx2]], dtype=np.float32)
+
+        # Apply delta in place and clip
+        self._a_cont = np.clip(self._a_cont + delta_vec, -1.0, 1.0)
+        return self._a_cont.copy(), mode  # tuple expected by SBROEnv
+
+    def reset(self, *, seed=None, options=None):
+        self._a_cont[:] = 0.0  # reset internal state
+        raw_obs, info = self.env.reset(seed=seed, options=options)
+        return self._format_obs(raw_obs), info
+
+    def step(self, flat_index: int):
+        raw_obs, rew, term, trunc, info = self.env.step(self.action(flat_index))
+        return self._format_obs(raw_obs), rew, term, trunc, info
+
+    # ------------------------------------------------------------------
+    # Mask logic
+    # ------------------------------------------------------------------
+    def _format_obs(self, raw_obs):
+        """
+        Return dict with flat mask (float32 0/1) + original observation.
+        """
+        mask = self._compute_flat_mask()
+        return {"observations": raw_obs, "action_mask": mask}
+
+    def _compute_flat_mask(self) -> np.ndarray:
+        """
+        Build a flat mask of length total_actions.
+        Invalid actions get 0.0, valid actions 1.0.
+        """
+        mask1 = np.ones(self.num_steps, dtype=np.float32)
+        mask2 = np.ones(self.num_steps, dtype=np.float32)
+
+        # mask for first continuous control
+        for i, d in enumerate(self.deltas):
+            if not (-1.0 <= self._a_cont[0] + d <= 1.0):
+                mask1[i] = 0.0
+        # mask for second continuous control
+        for i, d in enumerate(self.deltas):
+            if not (-1.0 <= self._a_cont[1] + d <= 1.0):
+                mask2[i] = 0.0
+
+        # mode (third dim) is always valid
+        mask3 = np.ones(2, dtype=np.float32)
+
+        # Kronecker-style product to flatten
+        flat_mask = np.kron(np.kron(mask1, mask2), mask3)
+        return flat_mask  # shape (total_actions,)
 
 
 def sbro_env_creator(env_config):
@@ -70,6 +187,11 @@ def sbro_env_creator(env_config):
 
     # return NormalizeObservation(env)
     return MinMaxNormalizeObservation(env)
+
+
+def discrete_sbro_env_creator(env_config):
+    env = sbro_env_creator(env_config)
+    return FlattenedActionWrapper(env=env, num_discrete_steps=5)
 
 
 def generate_entropy_schedule(
