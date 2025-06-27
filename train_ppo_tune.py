@@ -1,6 +1,7 @@
 import datetime as dt
 import os
 import warnings
+from functools import partial
 
 import numpy as np
 import polars as pl
@@ -86,6 +87,33 @@ def main():
     num_environments = 24
     starting_port = 8100
 
+    # Curriculum informations
+    USE_CURRICULUM = True
+    N_CURRICULUM = 8
+    Q_OBJ_CURRICULUM = np.linspace(
+        start=1.69 / 2, stop=1.69 * 1.5 / 2, num=N_CURRICULUM
+    )
+    time_low_curriculum = np.linspace(start=3.0, stop=4.5, num=N_CURRICULUM)
+    time_high_curriculum = np.linspace(start=12.0, stop=18.0, num=N_CURRICULUM)
+    TIME_CURRICULUM = [
+        [time_low_curriculum[level], time_high_curriculum[level]]
+        for level in range(N_CURRICULUM)
+    ]
+
+    REWARD_CONFIG = {
+        "penalty_truncation": 5.0,
+        "incentive_termination": 5.0,
+        "penalty_τ": 5.0e-3,
+        # Virtually it is penalty about energy, not SEC.
+        "penalty_SEC": (0.25) / 3600.0 / 1000.0,
+        "penalty_conc": 1000.0 / 3600.0,
+        "incentive_V_perm": 0.0,
+        "penalty_V_disp": 0.0,
+        "penalty_V_feed": 1.0,
+        "penalty_V_perm": 0.01,
+        "penalty_rapid_change": 0.05 / 60.0,
+    }
+
     SAVE_DIR = os.path.join("./result/", algorithm, str(dt.datetime.now()))
     os.makedirs(SAVE_DIR, exist_ok=True)
     os.makedirs(os.path.join(SAVE_DIR, "csvs"))
@@ -102,7 +130,6 @@ def main():
         def on_episode_end(self, *, episode, **kwargs):
             self.episode_num += 1
             numpy_episode = episode.to_numpy()
-            # numpy_episode = episode
             numpy_observations = numpy_episode.get_observations()
             prev_obs = numpy_observations[:-1, :]
             curr_obs = numpy_observations[1:, :]
@@ -192,22 +219,28 @@ def main():
         def __init__(self):
             super().__init__()
             self.train_iter_count = 0
-            self.return_mean_log = []
+            self.level = 0
+            self.max_level = N_CURRICULUM
+            self.return_mean_log = [[]]
             self.window = 15
-            self.div_thresh = 0.025
-            self.improvement_tol = 5
+            self.div_thresh = 0.01
+            self.alpha = 0.05
+            self.improvement_tol = 3
             self.improvement_tol_count = 0
 
         def on_train_result(self, *, algorithm, metrics_logger=None, result, **kwargs):
+            # print(algorithm.env_runner_group.healthy_env_runner_ids())
             # Logging mean return
             self.train_iter_count += 1
-            self.return_mean_log.append(result["env_runners"]["episode_return_mean"])
+            self.return_mean_log[-1].append(
+                result["env_runners"]["episode_return_mean"]
+            )
 
-            # Perform KL divergence test to determine train halt condition
-            if self.train_iter_count > 2 * self.window:
-                recent_mean_returns = np.array(self.return_mean_log[-self.window :])
+            # Perform KL divergence test to determine convergence
+            if self.train_iter_count > 4 * self.window:
+                recent_mean_returns = np.array(self.return_mean_log[-1][-self.window :])
                 past_mean_returns = np.array(
-                    self.return_mean_log[-2 * self.window : -self.window]
+                    self.return_mean_log[-1][-2 * self.window : -self.window]
                 )
 
                 KL_div = stats.entropy(
@@ -222,45 +255,104 @@ def main():
                         f"Iter #{self.train_iter_count} showed difference! ({KL_div = })"
                     )
                 else:
-                    self.improvement_tol_count += 1
-                    print(
-                        f"Iter #{self.train_iter_count} did not show difference! ({KL_div = })"
+                    converged_mean_returns = np.array(
+                        self.return_mean_log[-1][-2 * self.window :]
                     )
+                    evolving_mean_returns = np.array(
+                        self.return_mean_log[-1][: -2 * self.window]
+                    )
+                    # Perform T-test to determine improvement
+                    _, p_val = stats.ttest_ind(
+                        converged_mean_returns,
+                        evolving_mean_returns,
+                        alternative="greater",
+                    )
+                    if p_val < self.alpha:
+                        self.improvement_tol_count += 1
+                        print(
+                            f"Iter #{self.train_iter_count} converged and improved! (KL_div = {KL_div:.5f} | p_val = {p_val:.4f})"
+                        )
+                    else:
+                        print(
+                            f"Iter #{self.train_iter_count} converged but did not improve! (KL_div = {KL_div:.5f} | p_val = {p_val:.4f})"
+                        )
 
                 if self.improvement_tol_count == self.improvement_tol:
                     print(
-                        f"Recent {self.improvement_tol} iteration did not show difference! ({KL_div = })"
+                        f"Recent {self.improvement_tol + 2 * self.window} iterations converged and improved! (KL_div = {KL_div:.5f} | p_val = {p_val:.4f})"
                     )
-                    result["done"] = True
+                    if self.level < self.max_level:
+                        print(
+                            f"📚 Moving from curriculum [#{self.level} / {self.max_level}] to [#{self.level + 1} / {self.max_level}]"
+                        )
+                        # Prepare the next curriculum
+                        self.return_mean_log.append([])
+                        self.train_iter_count = 0
+                        self.improvement_tol_count = 0
+                        self.level += 1
+
+                        # Generate next curriculum's settings
+                        new_conditions = generate_env_settings(
+                            reward_config=REWARD_CONFIG,
+                            num_environments=num_environments,
+                            starting_port=starting_port,
+                            temp_range=[15.0, 18.0],
+                            time_range=TIME_CURRICULUM[self.level],
+                            Q_obj=Q_OBJ_CURRICULUM[self.level],
+                        )
+
+                        def _update_conditions(env_runner, conditions):
+                            env_runner.config.environment(
+                                env_config={
+                                    "worker_configs": conditions
+                                }  # Runner ID ranges from 1 to num_environments
+                            )
+                            env_runner.make_env()
+                            return None
+
+                        # Apply the generated conditions to the environments
+                        algorithm.env_runner_group.foreach_env_runner(
+                            partial(_update_conditions, conditions=new_conditions)
+                        )
+
+                    else:
+                        print(
+                            f"🧑‍🎓 Completed all of the curriculums! [#{self.level} / {self.max_level}]"
+                        )
+                        # If the end of the curriculum was reached, (gently) terminate the training
+                        result["done"] = True
+
+            result["level"] = self.level
 
             return None
 
-    REWARD_CONFIG = {
-        "penalty_truncation": 5.0,
-        "incentive_termination": 5.0,
-        "penalty_τ": 5.0e-3,
-        # Virtually it is penalty about energy, not SEC.
-        "penalty_SEC": (0.25) / 3600.0 / 1000.0,
-        "penalty_conc": 1000.0 / 3600.0,
-        "incentive_V_perm": 0.0,
-        "penalty_V_disp": 0.0,
-        "penalty_V_feed": 1.0,
-        "penalty_V_perm": 0.01,
-        "penalty_rapid_change": 0.05 / 60.0,
-    }
+    if USE_CURRICULUM:
+        # Start with the first curriculum
+        worker_configs = generate_env_settings(
+            reward_config=REWARD_CONFIG,
+            num_environments=num_environments,
+            starting_port=starting_port,
+            temp_range=[15.0, 18.0],
+            time_range=TIME_CURRICULUM[0],
+            Q_obj=Q_OBJ_CURRICULUM[0],
+        )
+        callbacks = [EpisodeReturn, CurriculumHandler]
+    else:
+        # Start with the last curriculum
+        worker_configs = generate_env_settings(
+            reward_config=REWARD_CONFIG,
+            num_environments=num_environments,
+            starting_port=starting_port,
+            temp_range=[15.0, 18.0],
+            time_range=TIME_CURRICULUM[-1],
+            Q_obj=Q_OBJ_CURRICULUM[-1],
+        )
+        callbacks = [EpisodeReturn]
 
-    worker_configs = generate_env_settings(
-        reward_config=REWARD_CONFIG,
-        num_environments=num_environments,
-        starting_port=starting_port,
-        temp_range=[15.0, 18.0],
-        time_range=[3.0, 12.0],
-        Q_obj=1.69 / 2,
-    )
+    env_config = {"worker_configs": worker_configs, "dt": 60.0}
 
-    ENV_CONFIG = {"worker_configs": worker_configs, "dt": 60.0}
-
-    max_train_step = 1000
+    # Large training step!
+    max_train_step = 25000
 
     # entropy_coefficient_schedule = generate_entropy_schedule(max_train_step, 0.25, 0.05, 10)
 
@@ -270,7 +362,7 @@ def main():
 
         config = (
             PPOConfig()
-            .environment(env="sbro_env_v1", env_config=ENV_CONFIG)
+            .environment(env="sbro_env_v1", env_config=env_config)
             .env_runners(
                 num_env_runners=num_environments,
                 batch_mode="complete_episodes",
@@ -305,12 +397,12 @@ def main():
                 entropy_coeff=0.0,
                 # train_batch_size_per_learner=1024*4
             )
-            .callbacks([EpisodeReturn, CurriculumHandler])
+            .callbacks(callbacks)
         )
     elif algorithm == "APPO":
         config = (
             APPOConfig()
-            .environment(env="sbro_env_v1", env_config=ENV_CONFIG)
+            .environment(env="sbro_env_v1", env_config=env_config)
             .env_runners(
                 num_env_runners=num_environments,
                 batch_mode="complete_episodes",
@@ -358,7 +450,7 @@ def main():
         tune.register_env("sbro_env_v1", discrete_sbro_env_creator)
         config = (
             PPOConfig()
-            .environment(env="sbro_env_v1", env_config=ENV_CONFIG)
+            .environment(env="sbro_env_v1", env_config=env_config)
             .env_runners(
                 num_env_runners=num_environments,
                 batch_mode="complete_episodes",
@@ -417,9 +509,6 @@ def main():
     )
 
     results = tuner.fit()
-
-    # with open(os.path.join(SAVE_DIR, "results.pkl"), "wb") as f:
-    #     pickle.dump(results, f)
 
     print("Training finished.")
 
