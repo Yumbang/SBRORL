@@ -376,6 +376,9 @@ class SBROEnv(gym.Env):
         """
         self.scenario_condition = new_scneario_condition
         self.objective_condition = new_objective_condition
+        print(
+            f"🚀 Scenario reset is completed @({self.base_url})\n{self.scenario_condition=}\n{self.objective_condition=}"
+        )
         return None
 
     def hard_reset(self, dt: float, time_max: float):
@@ -398,7 +401,7 @@ class SBROEnv(gym.Env):
             raise RuntimeError(
                 f"step returned status {status}, URL: {e.request.url!r}"
             ) from e
-
+        print(f"🚀 Hard reset is completed @({self.base_url})")
         return None
 
     def update_reward_conf(self, reward_conf: dict):

@@ -172,6 +172,7 @@ def sbro_env_creator(env_config):
         f"Worker {worker_index} creating environment with config: "
         f"URL='{worker_specific_config['base_url']}', "
         f"T_feed_mean={worker_specific_config['scenario_condition']['T_feed_mean']}"
+        f"objective_condition={worker_specific_config['objective_condition']}"
     )
 
     # --- START: CORRECTED SECTION ---
