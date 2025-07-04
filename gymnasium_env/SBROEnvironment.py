@@ -57,7 +57,7 @@ class SBROEnv(gym.Env):
         # Define observation space: 11 continuous values
         self.obs_range_dict = {
             "T_feed": [0.0, 50.0],  # °C
-            "C_feed": [0.0, 1.0],  # kg/m3
+            "C_feed": [0.0, 0.25],  # kg/m3
             "C_pipe_c_out": [0.0, 10.0],  # kg/m3
             "P_m_in": [0.0, 25e5],  # Pa
             "P_m_out": [0.0, 25e5],  # Pa
@@ -178,14 +178,22 @@ class SBROEnv(gym.Env):
             scenario_condition = [
                 self.scenario_condition["T_feed_mean"],
                 self.scenario_condition["T_feed_std"],
-                self.scenario_condition["C_feed_mean"],
+                # Plan_A.jl
+                # self.scenario_condition["C_feed_mean"],
+                # Plan_B.jl
+                self.scenario_condition["C_feed_mean_low"],
+                self.scenario_condition["C_feed_mean_high"],
                 self.scenario_condition["C_feed_std"],
             ]
             objective_condition = [
                 self.objective_condition["time_objective_low"],
                 self.objective_condition["time_objective_high"],
-                self.objective_condition["V_perm_objective_low"],
-                self.objective_condition["V_perm_objective_high"],
+                # Plan_A.jl
+                # self.objective_condition["V_perm_objective_low"],
+                # self.objective_condition["V_perm_objective_high"],
+                # Plan_B.jl
+                self.objective_condition["Q_perm_objective_low"],
+                self.objective_condition["Q_perm_objective_high"],
             ]
             reset_scenario_json_payload = orjson.dumps(
                 {
