@@ -1,6 +1,7 @@
 import datetime as dt
 import os
 import warnings
+import argparse
 from functools import partial
 
 import numpy as np
@@ -77,7 +78,74 @@ def generate_env_settings(
     return worker_configs
 
 
+def generate_env_settings_v2(
+    reward_config,
+    num_environments=24,
+    starting_port=8100,
+    temp_range=[15.0, 18.0],
+    time_range=[3.0, 12.0],
+    Q_obj_range=[0.85, 1.70],
+):
+    ports = range(starting_port, starting_port + num_environments)
+
+    Q_obj_low, Q_obj_high = Q_obj_range
+
+    n_time_scenarios = 8
+    n_temp_scenarios = int(np.floor(num_environments / n_time_scenarios))
+
+    if num_environments % n_time_scenarios != 0:
+        print(
+            "Number of scenarios does not match with the number of available environments."
+            "Some of the environments are not activated."
+        )
+
+    time_grid = np.linspace(*time_range, n_time_scenarios + 1)
+    time_highs = time_grid[:-1]
+    time_lows = time_grid[1:]
+
+    temp_means = np.linspace(temp_range[0], temp_range[1], num=n_temp_scenarios)
+
+    worker_configs = []
+
+    for i in range(n_temp_scenarios):
+        for j in range(n_time_scenarios):
+            config = {
+                "base_url": f"http://localhost:{ports[i * n_time_scenarios + j]}",
+                "scenario_condition": {
+                    "T_feed_mean": temp_means[i],
+                    "T_feed_std": 0.25,
+                    # "C_feed_mean": 0.05,
+                    "C_feed_mean_low": 0.05,
+                    "C_feed_mean_high": 0.1,
+                    "C_feed_std": 0.001,
+                },
+                "objective_condition": {
+                    "time_objective_low": time_lows[j] * 3600.0,
+                    "time_objective_high": time_highs[j] * 3600.0,
+                    "Q_perm_objective_low": Q_obj_low,
+                    "Q_perm_objective_high": Q_obj_high,
+                },
+                "reward_conf": reward_config,
+            }
+            worker_configs.append(config)
+
+    return worker_configs
+
+
 def main():
+    parser = argparse.ArgumentParser(
+        description="Train PPO model with optional curriculum learning."
+    )
+    parser.add_argument(
+        "--use-curriculum",
+        type=str,
+        choices=["y", "n"],
+        default="y",
+        help="Enable or disable curriculum learning ('y' or 'n').",
+    )
+    args = parser.parse_args()
+    USE_CURRICULUM = args.use_curriculum == "y"
+
     warnings.filterwarnings("ignore", category=DeprecationWarning)
     ray.init(num_gpus=1)
     print("Ray Cluster Resources:", ray.cluster_resources())
@@ -88,11 +156,17 @@ def main():
     starting_port = 8100
 
     # Curriculum informations
-    USE_CURRICULUM = True
+
     N_CURRICULUM = 8
-    Q_OBJ_CURRICULUM = np.linspace(
-        start=1.69 / 2, stop=1.69 * 1.5 / 2, num=N_CURRICULUM
-    )
+    # Q_OBJ_CURRICULUM = np.linspace(
+    #     start=1.69 / 2, stop=1.69 * 1.5 / 2, num=N_CURRICULUM
+    # )
+    Q_obj_range = np.linspace(0.8, 1.6, 18)
+    Q_obj_curr = [
+        np.array([Q_obj_range[curr], Q_obj_range[-curr]]) for curr in range(1, 8)
+    ]
+    Q_obj_curr.reverse()
+    Q_OBJ_CURRICULUM = Q_obj_curr
     time_low_curriculum = np.linspace(start=3.0, stop=4.5, num=N_CURRICULUM)
     time_high_curriculum = np.linspace(start=12.0, stop=18.0, num=N_CURRICULUM)
     TIME_CURRICULUM = [
@@ -102,10 +176,11 @@ def main():
 
     REWARD_CONFIG = {
         "penalty_truncation": 5.0,
-        "incentive_termination": 5.0,
+        # "incentive_termination": 5.0,
+        "incentive_termination": 0.0,
         "penalty_τ": 5.0e-3,
         # Virtually it is penalty about energy, not SEC.
-        "penalty_SEC": (0.25) / 3600.0 / 1000.0,
+        "penalty_SEC": (1.0) / 3600.0 / 1000.0,
         "penalty_conc": 1000.0 / 3600.0,
         "incentive_V_perm": 0.0,
         "penalty_V_disp": 0.0,
@@ -222,22 +297,24 @@ def main():
             self.level = 0
             self.max_level = N_CURRICULUM
             self.return_mean_log = [[]]
-            self.window = 15
+            self.window = 30
             self.div_thresh = 0.01
-            self.alpha = 0.05
+            self.alpha = 0.01
             self.improvement_tol = 3
             self.improvement_tol_count = 0
 
         def on_train_result(self, *, algorithm, metrics_logger=None, result, **kwargs):
             # print(algorithm.env_runner_group.healthy_env_runner_ids())
-            # Logging mean return
+            # Logging mean (or min 😒) return.
+            # For diversive curriculum (Plan_B.jl), min return-based handling is more reasonable.
             self.train_iter_count += 1
             self.return_mean_log[-1].append(
-                result["env_runners"]["episode_return_mean"]
+                # result["env_runners"]["episode_return_mean"]
+                result["env_runners"]["episode_return_min"]
             )
 
             # Perform KL divergence test to determine convergence
-            if self.train_iter_count > 4 * self.window:
+            if self.train_iter_count > 3 * self.window + 50:
                 recent_mean_returns = np.array(self.return_mean_log[-1][-self.window :])
                 past_mean_returns = np.array(
                     self.return_mean_log[-1][-2 * self.window : -self.window]
@@ -252,7 +329,7 @@ def main():
                 if is_evolving:
                     self.improvement_tol_count = 0
                     print(
-                        f"Iter #{self.train_iter_count} showed difference! ({KL_div = })"
+                        f"Iter #{self.train_iter_count} showed difference! (KL_div = {KL_div:.5f})"
                     )
                 else:
                     converged_mean_returns = np.array(
@@ -292,13 +369,13 @@ def main():
                         self.level += 1
 
                         # Generate next curriculum's settings
-                        new_conditions = generate_env_settings(
+                        new_conditions = generate_env_settings_v2(
                             reward_config=REWARD_CONFIG,
                             num_environments=num_environments,
                             starting_port=starting_port,
                             temp_range=[15.0, 18.0],
                             time_range=TIME_CURRICULUM[self.level],
-                            Q_obj=Q_OBJ_CURRICULUM[self.level],
+                            Q_obj_range=Q_OBJ_CURRICULUM[self.level],
                         )
 
                         def _update_conditions(env_runner, conditions):
@@ -326,33 +403,106 @@ def main():
 
             return None
 
+    class EarlyStopHandler(RLlibCallback):
+        def __init__(self):
+            super().__init__()
+            self.train_iter_count = 0
+            self.return_mean_log = [[]]
+            self.window = 30
+            self.div_thresh = 0.01
+            self.alpha = 0.01
+            self.improvement_tol = 3
+            self.improvement_tol_count = 0
+
+        def on_train_result(self, *, algorithm, metrics_logger=None, result, **kwargs):
+            # print(algorithm.env_runner_group.healthy_env_runner_ids())
+            # Logging mean (or min 😒) return.
+            # For diversive curriculum (Plan_B.jl), min return-based handling is more reasonable.
+            self.train_iter_count += 1
+            self.return_mean_log[-1].append(
+                result["env_runners"]["episode_return_mean"]
+                # result["env_runners"]["episode_return_min"]
+            )
+
+            # Perform KL divergence test to determine convergence
+            if self.train_iter_count > 3 * self.window + 50:
+                recent_mean_returns = np.array(self.return_mean_log[-1][-self.window :])
+                past_mean_returns = np.array(
+                    self.return_mean_log[-1][-2 * self.window : -self.window]
+                )
+
+                KL_div = stats.entropy(
+                    pk=recent_mean_returns,
+                    qk=past_mean_returns,
+                )
+                is_evolving = KL_div > self.div_thresh
+
+                if is_evolving:
+                    self.improvement_tol_count = 0
+                    print(
+                        f"Iter #{self.train_iter_count} showed difference! (KL_div = {KL_div:.5f})"
+                    )
+                else:
+                    converged_mean_returns = np.array(
+                        self.return_mean_log[-1][-2 * self.window :]
+                    )
+                    evolving_mean_returns = np.array(
+                        self.return_mean_log[-1][: -2 * self.window]
+                    )
+                    # Perform T-test to determine improvement
+                    _, p_val = stats.ttest_ind(
+                        converged_mean_returns,
+                        evolving_mean_returns,
+                        alternative="greater",
+                    )
+                    if p_val < self.alpha:
+                        self.improvement_tol_count += 1
+                        print(
+                            f"Iter #{self.train_iter_count} converged and improved! (KL_div = {KL_div:.5f} | p_val = {p_val:.4f})"
+                        )
+                    else:
+                        print(
+                            f"Iter #{self.train_iter_count} converged but did not improve! (KL_div = {KL_div:.5f} | p_val = {p_val:.4f})"
+                        )
+
+                if self.improvement_tol_count == self.improvement_tol:
+                    print(
+                        f"Recent {self.improvement_tol + 2 * self.window} iterations converged and improved! (KL_div = {KL_div:.5f} | p_val = {p_val:.4f})"
+                    )
+
+                    print("🧑‍🎓 Completed all of the curriculums!")
+                    # If the end of the curriculum was reached, (gently) terminate the training
+                    result["done"] = True
+
+            return None
+
     if USE_CURRICULUM:
         # Start with the first curriculum
-        worker_configs = generate_env_settings(
+        worker_configs = generate_env_settings_v2(
             reward_config=REWARD_CONFIG,
             num_environments=num_environments,
             starting_port=starting_port,
             temp_range=[15.0, 18.0],
             time_range=TIME_CURRICULUM[0],
-            Q_obj=Q_OBJ_CURRICULUM[0],
+            Q_obj_range=Q_OBJ_CURRICULUM[0],
         )
         callbacks = [EpisodeReturn, CurriculumHandler]
     else:
         # Start with the last curriculum
-        worker_configs = generate_env_settings(
+        worker_configs = generate_env_settings_v2(
             reward_config=REWARD_CONFIG,
             num_environments=num_environments,
             starting_port=starting_port,
             temp_range=[15.0, 18.0],
             time_range=TIME_CURRICULUM[-1],
-            Q_obj=Q_OBJ_CURRICULUM[-1],
+            Q_obj_range=Q_OBJ_CURRICULUM[-1],
         )
-        callbacks = [EpisodeReturn]
+        callbacks = [EpisodeReturn, EarlyStopHandler]
 
     env_config = {"worker_configs": worker_configs, "dt": 60.0}
 
-    # Large training step!
-    max_train_step = 25000
+    # Adjust maximum training step!
+    max_train_step = 2500
 
     # entropy_coefficient_schedule = generate_entropy_schedule(max_train_step, 0.25, 0.05, 10)
 
@@ -379,7 +529,7 @@ def main():
             .training(
                 use_critic=True,
                 use_gae=True,
-                gamma=0.995,
+                gamma=0.999,
                 lr=5e-5,
                 lambda_=0.95,
                 # Add the model dictionary here to enable the RNN
@@ -389,10 +539,16 @@ def main():
                     # The number of hidden units in the LSTM layer.
                     "lstm_cell_size": 256,
                     # The length of the sequence of observations to pass to the RNN for training.
-                    "max_seq_len": 256,
+                    "max_seq_len": 2048,
                     # Set this to False to have a separate feedforward network for the value function.
                     "vf_share_layers": True,
-                    "fcnet_hiddens": [32, 64, 128, 256],
+                    # This do not work. RLLib just construct encoder consists of 3 layers with 256 nodes
+                    "fcnet_hiddens": [
+                        32,
+                        64,
+                        128,
+                        256,
+                    ],
                 },
                 entropy_coeff=0.0,
                 # train_batch_size_per_learner=1024*4
@@ -422,7 +578,7 @@ def main():
             .training(
                 # use_critic=True,
                 # use_gae=True,
-                gamma=0.995,
+                gamma=0.999,
                 lr=5e-5,
                 lambda_=0.95,
                 # Add the model dictionary here to enable the RNN
@@ -478,7 +634,7 @@ def main():
             .training(
                 use_critic=True,
                 use_gae=True,
-                gamma=0.995,
+                gamma=0.999,
                 lr=5e-5,
                 lambda_=0.95,
                 entropy_coeff=0.0,
