@@ -15,4 +15,5 @@ wheels/
 # Result files
 result
 figures
-read_result_files.ipynb
+*.pdf
+*.png
