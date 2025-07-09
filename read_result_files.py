@@ -442,7 +442,7 @@ class PPOResultReader:
             "learners/__all_modules__/num_env_steps_trained_lifetime"
         ]
 
-        for col in self.progress_df.columns:
+        for col in tqdm(self.progress_df.columns):
             try:
                 plt.figure()  # Create a new figure for each column
                 plt.plot(trained_samples, self.progress_df[col], lw=0.5)
@@ -597,11 +597,13 @@ class PPOResultReader:
 
 
 # %%
-reader = PPOResultReader(experiment_path="result/PPO/2025-07-04 10:55:27.949935")
+reader = PPOResultReader(experiment_path="result/PPO/2025-07-09 09:05:18.189259")
 
 # %%
 reader.update()
 reader.plot_reward_summary()
+
+# %%
 reader.plot_episode(episode_n=-1)
 reader.plot_episode_post_analysis(episode_n=-1)
 
@@ -623,18 +625,18 @@ reader.plot_objective_distribution()
 
 # %%
 reader_without_curriculum = PPOResultReader(
-    experiment_path="result/PPO/2025-07-03 18:54:53.379802"
+    experiment_path="result/PPO/2025-07-08 12:54:48.371418"
 )
 
 # %%
 reader_without_curriculum.update()
-reader_without_curriculum.plot_episode(episode_n=-1)
-reader_without_curriculum.plot_episode_post_analysis(episode_n=-1)
+reader_without_curriculum.plot_reward_summary()
 
 
 # %%
-reader_without_curriculum.plot_reward_summary()
-reader_without_curriculum.plot_progress(show=False)
+reader_without_curriculum.plot_episode(episode_n=-1)
+reader_without_curriculum.plot_episode_post_analysis(episode_n=-1)
+# reader_without_curriculum.plot_progress(show=False)
 
 # %%
 for ep in range(1, 48):
@@ -680,7 +682,8 @@ plt.fill_between(
     alpha=0.15,
 )
 plt.xlabel("Train sample")
-plt.xlim([0, 6e10])
+# plt.xlim([0, 6e10])
+plt.ylim([-300, 0])
 plt.legend()
 plt.title("Reward sum (Return) trend comparison")
 plt.tight_layout()
@@ -769,7 +772,7 @@ time_remaining_df_without_curr = denormalized_lazy_df.collect()
 time_remaining_without_curr = time_remaining_df_without_curr.to_numpy().squeeze()
 
 # %%
-fig, axs = plt.subplots(2, 1, figsize=(7.5, 10), sharex=True)
+fig, axs = plt.subplots(2, 1, figsize=(7.5, 10), sharex=True, sharey=True)
 
 fig.suptitle("Remaining time after termination")
 
@@ -781,7 +784,8 @@ axs[0].plot(
     ls="--",
     color="red",
 )
-axs[0].grid(True, linestyle="-", alpha=0.7)
+axs[0].grid(True, linestyle="--", alpha=0.7)
+axs[0].set_ylabel("Time remaining [s]")
 axs[0].legend()
 
 axs[1].plot(time_remaining_without_curr, lw=0.1, label="Without curriculum", alpha=0.5)
@@ -792,7 +796,9 @@ axs[1].plot(
     ls="--",
     color="red",
 )
-axs[1].grid(True, linestyle="-", alpha=0.7)
+axs[1].grid(True, linestyle="--", alpha=0.7)
+axs[1].set_xlabel("Episode")
+axs[1].set_ylabel("Time remaining [s]")
 axs[1].legend()
 
 plt.tight_layout()
@@ -854,55 +860,471 @@ for i, lazy_df in enumerate(tqdm(reader.csv_dfs_lazy, desc="Processing episodes"
 
     # Get cycles from the eager_df
     episode_split_dfs = get_cycles_from_df(eager_df)
+    mean_C_feed = eager_df["Previous C_feed"].mean()
 
     # Extend the main list with cycle lengths
-    all_episode_cycle_lengths.extend([len(cycle) for cycle in episode_split_dfs])
+    all_episode_cycle_lengths.append(
+        [
+            [
+                [
+                    len(cycle),
+                    cycle["Previous Q_perm"].mean(),
+                    cycle["Previous T_feed"].mean(),
+                    cycle["Previous C_perm"].mean(),
+                ]
+                for cycle in episode_split_dfs
+            ],
+            mean_C_feed,
+        ]
+    )
 
     # Explicitly delete to free memory
     del eager_df
     del episode_split_dfs
-# Dynamic plotting of cycle length distributions from pre-processed data
-
-
-def plot_cycle_length_distribution_blocks(cycle_lengths_data, episode_block_size=2400):
-    total_lengths = len(cycle_lengths_data)
-    num_blocks = (total_lengths + episode_block_size - 1) // episode_block_size
-
-    fig, axs = plt.subplots(1, num_blocks, figsize=(6 * num_blocks, 5), squeeze=False)
-    axs = axs.flatten()
-
-    current_idx = 0
-    for i in range(num_blocks):
-        start_idx = current_idx
-        end_idx = min(current_idx + episode_block_size, total_lengths)
-
-        block_cycle_lengths = cycle_lengths_data[start_idx:end_idx]
-
-        if not block_cycle_lengths:
-            continue
-
-        # Plotting for the current block
-        axs[i].hist(block_cycle_lengths, bins=100)
-        axs[i].set_title(
-            f"Cycle Length Distribution (Lengths {start_idx}-{end_idx - 1})"
-        )
-        axs[i].set_xlabel("Cycle Length")
-        axs[i].set_ylabel("Frequency")
-
-        current_idx = end_idx
-
-    plt.tight_layout()
-    plt.show()
-
-
-# Example usage:
-plot_cycle_length_distribution_blocks(
-    all_episode_cycle_lengths, episode_block_size=2400
-)
-
-# You can now call plot_cycle_length_distribution_blocks with different block sizes or modify plotting design
-# For example:
-# plot_cycle_length_distribution_blocks(all_episode_cycle_lengths, episode_block_size=1000)
-# plot_cycle_length_distribution_blocks(all_episode_cycle_lengths, episode_block_size=5000)
 
 # %%
+cycle_info_samples = []
+
+for ep, data in enumerate(all_episode_cycle_lengths):
+    for cycle_info in data[0]:
+        cycle_info_samples.append(
+            {
+                "Episode": ep,
+                "Cycle_length": cycle_info[0],
+                "Mean_permeate_flowrate": cycle_info[1],
+                "Mean_feed_temperature": cycle_info[2],
+                "Mean_permeate_concentration": cycle_info[3],
+                "Mean_feed_concentration": data[1],
+            }
+        )
+
+cycle_length_samples = pl.DataFrame(cycle_info_samples)
+
+# %%
+plt.hist(cycle_length_samples["Mean feed concentration"], bins=100)
+plt.show()
+
+plt.hist(cycle_length_samples["Episode"], bins=100)
+plt.show()
+
+plt.hist(cycle_length_samples["Cycle length"], bins=100)
+plt.show()
+
+# %%
+samples_after_convergence = cycle_length_samples.filter(pl.col("Episode") > 8000)
+
+# %%
+plt.scatter(
+    samples_after_convergence["Mean_feed_concentration"],
+    samples_after_convergence["Cycle_length"],
+    s=1,
+    marker="o",
+    alpha=0.1,
+)
+
+plt.hist2d(
+    samples_after_convergence["Mean_feed_concentration"],
+    samples_after_convergence["Cycle_length"],
+    bins=(100, 100),
+    alpha=0.5,
+    cmin=10,
+    cmap="viridis",
+)
+
+plt.ylabel("Cycle length")
+plt.xlabel("Mean feed concentration")
+# plt.ylim([None, 100])
+plt.show()
+
+# %% Poisson regression analysis
+import statsmodels.formula.api as smf  # noqa: E402
+
+# %%
+# --- 1. Fit the Negative Binomial Regression Model ---
+# The formula remains the same, but we use negativebinomial() instead of poisson()
+formula = "Cycle_length ~ Mean_feed_concentration"
+
+# Convert to pandas for statsmodels compatibility
+data_pd = samples_after_convergence.to_pandas()
+
+# Fit the model
+model_nb = smf.negativebinomial(formula=formula, data=data_pd).fit()
+
+# Print the new model summary
+print("--- Negative Binomial Regression Results ---")
+print(model_nb.summary())
+
+
+# --- 2. Get Predictions and Add to Polars DataFrame ---
+# Get predictions from the new model
+predictions_pd_nb = model_nb.predict(data_pd)
+
+# Add the NBR predictions as a new column to your Polars DataFrame
+samples_with_nb_predictions = samples_after_convergence.with_columns(
+    pl.Series(name="predicted_cycle_length_nb", values=predictions_pd_nb)
+)
+# %%
+# --- 3. Visualize the NBR Results ---
+fig, ax = plt.subplots(figsize=(7, 6))
+
+# Draw the 2D histogram using Matplotlib's hist2d
+# It returns (counts, xedges, yedges, image_mappable)
+h = ax.hist2d(
+    samples_with_nb_predictions["Mean_feed_concentration"],
+    samples_with_nb_predictions["Cycle_length"],
+    bins=(np.arange(0.05, 0.1, 0.001), np.arange(0, 300, 1)),
+    alpha=1.0,
+    cmin=8,
+    cmap="viridis",
+)
+
+# Add the colorbar, linked to the returned image object (h[3])
+cbar = fig.colorbar(h[3], ax=ax)
+cbar.set_label("Counts")
+
+# Overlay the line plot for the predicted counts
+ax.plot(
+    samples_with_nb_predictions["Mean_feed_concentration"],
+    samples_with_nb_predictions["predicted_cycle_length_nb"],
+    color="red",
+    lw=3,
+    label="Predicted count",
+)
+
+# --- 2. Finalize the plot details ---
+ax.set_ylim([None, 100])
+ax.set_xlabel("Mean Feed Concentration [kg/m³]")
+ax.set_ylabel("Cycle Length [minute]")
+ax.legend()
+ax.grid(True, linestyle="--", alpha=0.6)
+
+plt.savefig("C_feed_Cycle_length_NBR.pdf")
+plt.show()
+
+# %%
+
+# Pre-process all episodes to get cycle lengths, one by one to save memory
+
+all_episode_cycle_lengths_without_curriculum = []
+total_episodes = len(reader_without_curriculum.csv_dfs_lazy)
+
+for i, lazy_df in enumerate(
+    tqdm(reader_without_curriculum.csv_dfs_lazy, desc="Processing episodes")
+):
+    # Denormalize and collect one lazy_df at a time
+    eager_df = reader_without_curriculum._denormalize_dataframe(
+        lazy_df, denormalize=True
+    ).collect()
+
+    # Get cycles from the eager_df
+    episode_split_dfs = get_cycles_from_df(eager_df)
+    mean_C_feed = eager_df["Previous C_feed"].mean()
+
+    # Extend the main list with cycle lengths
+    all_episode_cycle_lengths_without_curriculum.append(
+        [
+            [
+                [
+                    len(cycle),
+                    cycle["Previous Q_perm"].mean(),
+                    cycle["Previous T_feed"].mean(),
+                    cycle["Previous C_perm"].mean(),
+                ]
+                for cycle in episode_split_dfs
+            ],
+            mean_C_feed,
+        ]
+    )
+
+    # Explicitly delete to free memory
+    del eager_df
+    del episode_split_dfs
+
+# %%
+cycle_info_samples_without_curriculum = []
+
+for ep, data in enumerate(all_episode_cycle_lengths_without_curriculum):
+    for cycle_info in data[0]:
+        cycle_info_samples_without_curriculum.append(
+            {
+                "Episode": ep,
+                "Cycle_length": cycle_info[0],
+                "Mean_permeate_flowrate": cycle_info[1],
+                "Mean_feed_temperature": cycle_info[2],
+                "Mean_permeate_concentration": cycle_info[3],
+                "Mean_feed_concentration": data[1],
+            }
+        )
+
+cycle_length_samples_without_curriculum = pl.DataFrame(
+    cycle_info_samples_without_curriculum
+)
+
+# %%
+plt.hist(cycle_length_samples_without_curriculum["Mean_feed_concentration"], bins=100)
+plt.show()
+
+plt.hist(cycle_length_samples_without_curriculum["Episode"], bins=100)
+plt.show()
+
+plt.hist(cycle_length_samples_without_curriculum["Cycle_length"], bins=100)
+plt.show()
+
+# %%
+samples_after_convergence_without_curriculum = (
+    cycle_length_samples_without_curriculum.filter(pl.col("Episode") > 12000)
+)
+
+# %%
+plt.scatter(
+    samples_after_convergence_without_curriculum["Mean_feed_concentration"],
+    samples_after_convergence_without_curriculum["Cycle_length"],
+    s=1,
+    marker="o",
+    alpha=0.1,
+)
+
+plt.hist2d(
+    samples_after_convergence_without_curriculum["Mean_feed_concentration"],
+    samples_after_convergence_without_curriculum["Cycle_length"],
+    bins=(100, 100),
+    alpha=0.5,
+    cmin=10,
+    cmap="viridis",
+)
+
+plt.ylabel("Cycle length")
+plt.xlabel("Mean feed concentration")
+# plt.ylim([None, 100])
+plt.show()
+# %%
+# --- 1. Fit the Negative Binomial Regression Model ---
+# The formula remains the same, but we use negativebinomial() instead of poisson()
+formula = "Cycle_length ~ Mean_feed_concentration"
+
+# Convert to pandas for statsmodels compatibility
+data_pd = samples_after_convergence_without_curriculum.to_pandas()
+
+# Fit the model
+model_nb = smf.negativebinomial(formula=formula, data=data_pd).fit()
+
+# Print the new model summary
+print("--- Negative Binomial Regression Results ---")
+print(model_nb.summary())
+
+
+# --- 2. Get Predictions and Add to Polars DataFrame ---
+# Get predictions from the new model
+predictions_pd_nb = model_nb.predict(data_pd)
+
+# Add the NBR predictions as a new column to your Polars DataFrame
+samples_with_nb_predictions_without_curriculum = (
+    samples_after_convergence_without_curriculum.with_columns(
+        pl.Series(name="predicted_cycle_length_nb", values=predictions_pd_nb)
+    )
+)
+
+# --- 3. Visualize the NBR Results ---
+fig, ax = plt.subplots(figsize=(7, 6))
+
+# Draw the 2D histogram using Matplotlib's hist2d
+# It returns (counts, xedges, yedges, image_mappable)
+h = ax.hist2d(
+    samples_with_nb_predictions_without_curriculum["Mean_feed_concentration"],
+    samples_with_nb_predictions_without_curriculum["Cycle_length"],
+    bins=(np.arange(0.05, 0.1, 0.001), np.arange(0, 300, 2)),
+    alpha=1.0,
+    cmin=8,
+    cmap="viridis",
+)
+
+# Add the colorbar, linked to the returned image object (h[3])
+cbar = fig.colorbar(h[3], ax=ax)
+cbar.set_label("Counts")
+
+# Overlay the line plot for the predicted counts
+ax.plot(
+    samples_with_nb_predictions_without_curriculum["Mean_feed_concentration"],
+    samples_with_nb_predictions_without_curriculum["predicted_cycle_length_nb"],
+    color="red",
+    lw=3,
+    label="Predicted count",
+)
+
+# --- 2. Finalize the plot details ---
+ax.set_ylim([None, 150])
+ax.set_xlabel("Mean Feed Concentration [kg/m³]")
+ax.set_ylabel("Cycle Length [minute]")
+ax.legend()
+ax.grid(True, linestyle="--", alpha=0.6)
+
+plt.savefig("C_feed_Cycle_length_NBR.pdf")
+plt.show()
+
+# %%
+from copy import deepcopy
+
+print(len(cycle_length_samples_without_curriculum["Episode"].unique()))
+
+ep_range = np.arange(5000, 17000, 3000, dtype=np.int64)
+
+for i in range(3):
+    episodes = (ep_range[i], ep_range[i + 1])
+    print(episodes)
+    target_samples = deepcopy(
+        cycle_length_samples_without_curriculum[episodes[0] : episodes[1]]
+    )
+
+    formula = "Cycle_length ~ Mean_feed_concentration"
+
+    # Convert to pandas for statsmodels compatibility
+    data_pd = target_samples.to_pandas()
+
+    # Fit the model
+    model_nb = smf.negativebinomial(formula=formula, data=data_pd).fit()
+
+    # Print the new model summary
+    print("--- Negative Binomial Regression Results ---")
+    print(model_nb.summary())
+
+    # --- 2. Get Predictions and Add to Polars DataFrame ---
+    # Get predictions from the new model
+    predictions_pd_nb = model_nb.predict(data_pd)
+
+    # Add the NBR predictions as a new column to your Polars DataFrame
+    samples_with_nb_predictions_without_curriculum = target_samples.with_columns(
+        pl.Series(name="predicted_cycle_length_nb", values=predictions_pd_nb)
+    )
+
+    # --- 3. Visualize the NBR Results ---
+    fig, ax = plt.subplots(figsize=(7, 6))
+
+    # Draw the 2D histogram using Matplotlib's hist2d
+    # It returns (counts, xedges, yedges, image_mappable)
+    h = ax.hist2d(
+        samples_with_nb_predictions_without_curriculum["Mean_feed_concentration"],
+        samples_with_nb_predictions_without_curriculum["Cycle_length"],
+        bins=(np.arange(0.05, 0.1, 0.001), np.arange(0, 300, 2)),
+        alpha=1.0,
+        cmin=5,
+        cmap="viridis",
+    )
+
+    # Add the colorbar, linked to the returned image object (h[3])
+    cbar = fig.colorbar(h[3], ax=ax)
+    cbar.set_label("Counts")
+
+    # Overlay the line plot for the predicted counts
+    ax.plot(
+        samples_with_nb_predictions_without_curriculum["Mean_feed_concentration"],
+        samples_with_nb_predictions_without_curriculum["predicted_cycle_length_nb"],
+        color="red",
+        lw=3,
+        label="Predicted count",
+    )
+
+    # --- 2. Finalize the plot details ---
+    # ax.set_ylim([None, 150])
+    ax.set_xlabel("Mean Feed Concentration [kg/m³]")
+    ax.set_ylabel("Cycle Length [minute]")
+    ax.legend()
+    ax.grid(True, linestyle="--", alpha=0.6)
+
+    plt.savefig("C_feed_Cycle_length_NBR.pdf")
+    plt.show()
+
+# %%
+## Fig. 1:Tree기반 시각화
+# import pandas as pd
+# import numpy as np
+# import matplotlib.pyplot as plt
+# import seaborn as sns
+# from sklearn.tree import DecisionTreeRegressor, plot_tree
+
+# # 데이터 로드
+# df = pd.read_csv(r"D:\@ZerogapRl_code\@@Figure에쓰인엑셀파일\td3_allSteps_tree-based-100.csv")
+
+# # Feature 및 Target 정의
+# features = ['Action1', 'Action2', 'Action3']
+# target = 'Reward'
+# X = df[features]
+# y = df[target]
+
+# # Tree 모델 학습
+# tree = DecisionTreeRegressor(max_depth=4, random_state=42)
+# tree.fit(X, y)
+
+# # Figure 1: Decision Tree 시각화
+# plt.figure(figsize=(20, 10))
+# plot_tree(tree, feature_names=features, filled=True, rounded=True, precision=5, node_ids=True)
+# plt.title("Figure 1. Tree-based Interpretation of TD3 Policy (Actions → Reward)")
+# plt.savefig(r"D:\@ZerogapRl_code\@@Figure에쓰인엑셀파일\Fig1_tree_based-100.png", dpi=300, bbox_inches='tight')
+# # plt.show()
+
+# # 리프 노드 정보 추가
+# df['Leaf'] = tree.apply(X)
+
+# # State 값 이름 변경 (있을 경우)
+# df = df.rename(columns={
+#     'State2': 'prod_H2',
+#     'State3': 'P_total',
+#     'State4': 'V_cell'
+# })
+# # Leaf 별 성능지표 요약
+# summary = df.groupby('Leaf').agg({
+#     'prod_H2': 'mean',
+#     'P_total': 'mean',
+#     'V_cell': 'mean',
+#     'Reward': ['mean', 'count']
+# }).reset_index()
+# summary.columns = ['Leaf', 'Mean_H2', 'Mean_Power', 'Mean_Vcell', 'Mean_Reward', 'Sample_Count']
+
+# ##-----------------------------------------------------------------------------------------##
+# ## Fig. 2: Tree기반 평균, 표준편차 표현
+# import matplotlib.pyplot as plt
+# import seaborn as sns
+# from sklearn.tree import DecisionTreeRegressor
+# import pandas as pd
+# import numpy as np
+# #
+# # # 데이터 로드
+# # df = pd.read_csv(r"D:\@ZerogapRl_code\@@Figure에쓰인엑셀파일\td3_allSteps_tree-based-1000.csv")
+# #
+# # # 트리 학습
+# # features = ['Action1', 'Action2', 'Action3']
+# # target = 'Reward'
+# # X = df[features]
+# # y = df[target]
+# #
+# # tree = DecisionTreeRegressor(max_depth=4, random_state=42)
+# # tree.fit(X, y)
+# # # Leaf 할당
+# # df['Leaf'] = tree.apply(X)
+
+# # 시각화
+# leaf_ids = sorted(df['Leaf'].unique())
+# num_cols = 4
+# num_rows = int(np.ceil(len(leaf_ids) / num_cols))
+
+# fig, axes = plt.subplots(num_rows, num_cols, figsize=(4.5 * num_cols, 3.5 * num_rows))
+# axes = axes.flatten()
+
+# for idx, leaf in enumerate(leaf_ids):
+#     ax = axes[idx]
+#     subset = df[df['Leaf'] == leaf]['Reward']
+#     sns.histplot(subset, kde=True, stat='density', ax=ax,
+#                  bins=25, color="skyblue", edgecolor="black", linewidth=0.5)
+
+#     mu = subset.mean()
+#     sigma = subset.std()
+
+#     ax.set_title(f"Leaf {leaf}\nμ={mu:.2f}, σ={sigma:.2f}", fontsize=10)
+#     ax.set_xlabel("Reward")
+#     ax.set_ylabel("Density")
+
+# # 남는 subplot 제거
+# for i in range(len(leaf_ids), len(axes)):
+#     fig.delaxes(axes[i])
+
+# plt.tight_layout()
+# plt.savefig(r"D:\@ZerogapRl_code\@@Figure에쓰인엑셀파일\Fig2_tree-based-100.png", dpi=300)
