@@ -157,18 +157,19 @@ def main():
 
     # Curriculum informations
 
-    N_CURRICULUM = 8
+    N_CURRICULUM = 4
     # Q_OBJ_CURRICULUM = np.linspace(
     #     start=1.69 / 2, stop=1.69 * 1.5 / 2, num=N_CURRICULUM
     # )
-    Q_obj_range = np.linspace(0.8, 1.6, 18)
+    Q_obj_range = np.linspace(0.8, 1.6, 2 + 2 * N_CURRICULUM)
     Q_obj_curr = [
-        np.array([Q_obj_range[curr], Q_obj_range[-curr]]) for curr in range(1, 8)
+        np.array([Q_obj_range[curr], Q_obj_range[-(curr + 1)]])
+        for curr in range(N_CURRICULUM)
     ]
     Q_obj_curr.reverse()
     Q_OBJ_CURRICULUM = Q_obj_curr
-    time_low_curriculum = np.linspace(start=3.0, stop=4.5, num=N_CURRICULUM)
-    time_high_curriculum = np.linspace(start=12.0, stop=18.0, num=N_CURRICULUM)
+    time_low_curriculum = np.linspace(start=3.0, stop=3.0, num=N_CURRICULUM)
+    time_high_curriculum = np.linspace(start=18.0, stop=18.0, num=N_CURRICULUM)
     TIME_CURRICULUM = [
         [time_low_curriculum[level], time_high_curriculum[level]]
         for level in range(N_CURRICULUM)
@@ -295,11 +296,11 @@ def main():
             super().__init__()
             self.train_iter_count = 0
             self.level = 0
-            self.max_level = N_CURRICULUM
+            self.max_level = N_CURRICULUM - 1
             self.return_mean_log = [[]]
             self.window = 30
             self.div_thresh = 0.01
-            self.alpha = 0.01
+            self.alpha = 0.05
             self.improvement_tol = 3
             self.improvement_tol_count = 0
 
@@ -309,8 +310,8 @@ def main():
             # For diversive curriculum (Plan_B.jl), min return-based handling is more reasonable.
             self.train_iter_count += 1
             self.return_mean_log[-1].append(
-                # result["env_runners"]["episode_return_mean"]
-                result["env_runners"]["episode_return_min"]
+                result["env_runners"]["episode_return_mean"]
+                # result["env_runners"]["episode_return_min"]
             )
 
             # Perform KL divergence test to determine convergence
@@ -497,12 +498,13 @@ def main():
             time_range=TIME_CURRICULUM[-1],
             Q_obj_range=Q_OBJ_CURRICULUM[-1],
         )
-        callbacks = [EpisodeReturn, EarlyStopHandler]
+        # callbacks = [EpisodeReturn, EarlyStopHandler]
+        callbacks = [EpisodeReturn]
 
     env_config = {"worker_configs": worker_configs, "dt": 60.0}
 
     # Adjust maximum training step!
-    max_train_step = 2500
+    max_train_step = 1000
 
     # entropy_coefficient_schedule = generate_entropy_schedule(max_train_step, 0.25, 0.05, 10)
 
