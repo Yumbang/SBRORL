@@ -428,7 +428,7 @@ class PPOResultReader:
 
         return None
 
-    def plot_progress(self, update=False, show=False):
+    def plot_progress(self, update=False, plot_level=True, show=False):
         if update:
             self.update()
 
@@ -442,10 +442,39 @@ class PPOResultReader:
             "learners/__all_modules__/num_env_steps_trained_lifetime"
         ]
 
+        try:
+            levels = self.progress_df["level"].unique()
+            level_dfs = [
+                self.progress_df.filter(pl.col("level") == level) for level in levels
+            ]
+            level_ranges = [
+                [
+                    level_df[
+                        "learners/__all_modules__/num_env_steps_trained_lifetime"
+                    ].min(),
+                    level_df[
+                        "learners/__all_modules__/num_env_steps_trained_lifetime"
+                    ].max(),
+                ]
+                for level_df in level_dfs
+            ]
+        except pl.exceptions.ColumnNotFoundError as e:
+            print("`level` column is not found: ", e)
+            plot_level = False
+
         for col in tqdm(self.progress_df.columns):
             try:
                 plt.figure()  # Create a new figure for each column
                 plt.plot(trained_samples, self.progress_df[col], lw=0.5)
+                if plot_level:
+                    for level_range in level_ranges:
+                        plt.vlines(
+                            [level_range[1]],
+                            ymin=self.progress_df[col].min(),
+                            ymax=self.progress_df[col].max(),
+                            color="k",
+                            lw=0.5,
+                        )
                 plt.xlabel("Train sample")
                 plt.title(col)
                 plt.tight_layout()
@@ -597,7 +626,7 @@ class PPOResultReader:
 
 
 # %%
-reader = PPOResultReader(experiment_path="result/PPO/2025-07-09 09:05:18.189259")
+reader = PPOResultReader(experiment_path="eval_csvs")
 
 # %%
 reader.update()
@@ -608,7 +637,7 @@ reader.plot_episode(episode_n=-1)
 reader.plot_episode_post_analysis(episode_n=-1)
 
 # %%
-reader.plot_progress(show=False)
+reader.plot_progress(show=False, plot_level=True)
 
 # %%
 reader.plot_episode_post_analysis(episode_n=-1)
