@@ -535,6 +535,7 @@ def main():
                 lr=5e-5,
                 lambda_=0.95,
                 # Add the model dictionary here to enable the RNN
+                # Configurations about model construction did not work (25.07.09)
                 model={
                     # Use a Long Short-Term Memory (LSTM) network.
                     "use_lstm": True,
