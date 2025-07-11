@@ -63,16 +63,41 @@ def generate_eval_env_settings_v2(
     return evaluation_environment_settings
 
 
-def decode_action_determ(nn_output: torch.Tensor, done_mask: list = None):
-    mean1, _ = nn_output[:, 0], nn_output[:, 2]
-    mean2, _ = nn_output[:, 1], nn_output[:, 3]
-    logits_discrete = nn_output[:, 4:]
+# def decode_action_determ(nn_output: torch.Tensor):
+#     mean1, _ = nn_output[:, 2], nn_output[:, 4]
+#     mean2, _ = nn_output[:, 3], nn_output[:, 5]
+#     logits_discrete = nn_output[:, :2]
 
-    action_1 = torch.tanh(mean1).to("cpu")
-    action_2 = torch.tanh(mean2).to("cpu")
-    action_3 = torch.argmax(logits_discrete, dim=-1).to("cpu")
+#     action_1 = torch.tanh(mean1).to("cpu")
+#     action_2 = torch.tanh(mean2).to("cpu")
+#     action_3 = torch.argmax(logits_discrete, dim=-1).to("cpu")
 
-    return np.array([action_1, action_2, action_3]).transpose()
+#     return np.array([action_1, action_2, action_3]).transpose()
+
+
+def decode_action_determ(nn_output: torch.Tensor):
+    """
+    Decodes the deterministic action from the 6-element nn_output
+    based on the correct [4, 2] input split.
+
+    Args:
+        nn_output: Tensor of shape (batch_size, 6).
+    """
+    # 1. Correctly slice the tensor based on input_lens=[4, 2]
+    means_continuous = nn_output[:, :2]  # Indices 0, 1
+    logits_discrete = nn_output[:, 4:]  # Indices 4, 5
+
+    # 2. Calculate the deterministic actions
+    action_discrete = torch.argmax(logits_discrete, dim=-1)
+    actions_continuous = torch.tanh(means_continuous)
+
+    # 3. Combine and format the output
+    action_discrete_unsqueezed = action_discrete.unsqueeze(1)
+    combined_actions = torch.cat(
+        (actions_continuous, action_discrete_unsqueezed.float()), dim=1
+    )
+
+    return combined_actions.cpu().numpy()
 
 
 def refactor_as_df(observations, actions, rewards):
@@ -169,7 +194,8 @@ def main():
         evaluation_dfs = []
 
         # Use tqdm for a progress bar over all the settings
-        for setting in tqdm(env_settings, desc="Evaluating Settings"):
+        # for setting in tqdm(env_settings, desc="Evaluating Settings"):
+        for setting in env_settings:
             # 1. Initialize a single environment with the current setting
             setting["base_url"] = f"http://localhost:{port_number}"
             env = MinMaxNormalizeObservation(SBROEnv(**setting))
@@ -186,7 +212,9 @@ def main():
             # 4. Run the episode until it's done
             while True:
                 # Prepare the observation for the model (add batch dim)
-                obs_tensor = torch.tensor([obs], dtype=torch.float32).to(device)
+                obs_tensor = torch.tensor(np.array([obs]), dtype=torch.float32).to(
+                    device
+                )
 
                 # Get action parameters from the policy module
                 with torch.no_grad():
