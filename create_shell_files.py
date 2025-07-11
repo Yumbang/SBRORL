@@ -4,7 +4,7 @@ import numpy as np
 eval_script_path = (
     "/home/ybang-eai/research/2025/SBRO/SBRORL/evaluate_ppo_sequentially.py"
 )
-checkpoints_dir = "/home/ybang-eai/research/2025/SBRO/SBRORL/result/PPO/2025-07-09 09:05:18.189259/PPO_SBRO/PPO_sbro_env_v1_65bcf_00000_0_2025-07-09_09-05-18"
+checkpoints_dir = "/home/ybang-eai/research/2025/SBRO/SBRORL/result/PPO/2025-07-08 12:54:48.371418/PPO_SBRO/PPO_sbro_env_v1_4afbe_00000_0_2025-07-08_12-54-48"
 shell_dir = os.path.join(checkpoints_dir, "shell")
 
 os.makedirs(shell_dir, exist_ok=True)
@@ -12,7 +12,7 @@ os.makedirs(shell_dir, exist_ok=True)
 N_ENVS = 25
 STARTING_PORT = 8100
 
-n_checkpoints = 94
+n_checkpoints = 74
 
 checkpoints_range = np.arange(1, n_checkpoints)
 
