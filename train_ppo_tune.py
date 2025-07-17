@@ -17,7 +17,6 @@ from ray.rllib.examples.rl_modules.classes.action_masking_rlm import (
 )
 from scipy import stats
 
-# Import your custom environment and the necessary wrappers
 from gymnasium_env.SBROEnvironment import SBROEnv
 from gymnasium_env.utils import (
     discrete_sbro_env_creator,

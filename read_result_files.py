@@ -626,7 +626,9 @@ class PPOResultReader:
 
 
 # %%
-reader = PPOResultReader(experiment_path="eval_csvs")
+reader = PPOResultReader(
+    experiment_path="/home/ybang-eai/research/2025/SBRO/SBRORL/result/PPO/2025-07-09 09:05:18.189259"
+)
 
 # %%
 reader.update()
@@ -637,7 +639,7 @@ reader.plot_episode(episode_n=-1)
 reader.plot_episode_post_analysis(episode_n=-1)
 
 # %%
-reader.plot_progress(show=False, plot_level=True)
+reader.plot_progress(show=False, plot_level=False)
 
 # %%
 reader.plot_episode_post_analysis(episode_n=-1)
@@ -678,6 +680,9 @@ for ep in range(1, 48):
 reader_without_curriculum.plot_objective_distribution()
 
 # %%
+optimal_checkpoint_with_curriculum = 66
+optimal_checkpoint_without_curriculum = 18
+
 plt.figure(figsize=(10, 7.5))
 plt.plot(
     reader_without_curriculum.progress_df[
@@ -686,6 +691,16 @@ plt.plot(
     reader_without_curriculum.progress_df["env_runners/episode_return_mean"],
     label="Without curriculum",
     lw=1.0,
+)
+plt.scatter(
+    reader_without_curriculum.progress_df[
+        "learners/__all_modules__/num_env_steps_trained_lifetime"
+    ][18 * 10 : (18 + 1) * 10],
+    reader_without_curriculum.progress_df["env_runners/episode_return_mean"][
+        18 * 10 : (18 + 1) * 10
+    ],
+    label="Optimal point",
+    marker="+",
 )
 plt.fill_between(
     x=reader_without_curriculum.progress_df[
@@ -702,6 +717,14 @@ plt.plot(
     reader.progress_df["env_runners/episode_return_mean"],
     label="With curriculum",
     lw=1.0,
+)
+plt.scatter(
+    reader.progress_df["learners/__all_modules__/num_env_steps_trained_lifetime"][
+        66 * 10 : (66 + 1) * 10
+    ],
+    reader.progress_df["env_runners/episode_return_mean"][66 * 10 : (66 + 1) * 10],
+    label="Optimal point",
+    marker="+",
 )
 plt.fill_between(
     x=reader.progress_df["learners/__all_modules__/num_env_steps_trained_lifetime"],
@@ -728,6 +751,7 @@ plt.plot(
     label="Without curriculum",
     lw=1.0,
 )
+
 plt.fill_between(
     x=reader_without_curriculum.progress_df[
         "learners/__all_modules__/num_env_steps_trained_lifetime"
@@ -744,6 +768,7 @@ plt.plot(
     label="With curriculum",
     lw=1.0,
 )
+
 plt.fill_between(
     x=reader.progress_df["learners/__all_modules__/num_env_steps_trained_lifetime"],
     y1=reader.progress_df["env_runners/episode_return_min"],

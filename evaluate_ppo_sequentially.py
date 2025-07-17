@@ -1,20 +1,15 @@
-import os
-from copy import deepcopy
-
 import argparse
+import os
 
-import gymnasium as gym
 import numpy as np
 import polars as pl
 import torch
-from matplotlib import pyplot as plt
 from ray.rllib.algorithms.ppo.torch.default_ppo_torch_rl_module import (
     DefaultPPOTorchRLModule as PPOModule,
 )
-from tqdm import tqdm
 
 from gymnasium_env.SBROEnvironment import SBROEnv
-from gymnasium_env.utils import MinMaxNormalizeObservation, sbro_env_creator
+from gymnasium_env.utils import MinMaxNormalizeObservation
 
 
 def generate_eval_env_settings_v2(
@@ -61,18 +56,6 @@ def generate_eval_env_settings_v2(
                     evaluation_environment_settings.append(config)
 
     return evaluation_environment_settings
-
-
-# def decode_action_determ(nn_output: torch.Tensor):
-#     mean1, _ = nn_output[:, 2], nn_output[:, 4]
-#     mean2, _ = nn_output[:, 3], nn_output[:, 5]
-#     logits_discrete = nn_output[:, :2]
-
-#     action_1 = torch.tanh(mean1).to("cpu")
-#     action_2 = torch.tanh(mean2).to("cpu")
-#     action_3 = torch.argmax(logits_discrete, dim=-1).to("cpu")
-
-#     return np.array([action_1, action_2, action_3]).transpose()
 
 
 def decode_action_determ(nn_output: torch.Tensor):
