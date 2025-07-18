@@ -2,7 +2,7 @@ import os
 import numpy as np
 
 eval_script_path = (
-    "/home/ybang-eai/research/2025/SBRO/SBRORL/evaluate_ppo_sequentially.py"
+    "/home/ybang-eai/research/2025/SBRO/SBRORL/evaluation/evaluate_ppo_sequentially.py"
 )
 checkpoints_dir = "/home/ybang-eai/research/2025/SBRO/SBRORL/result/PPO/2025-07-08 12:54:48.371418/PPO_SBRO/PPO_sbro_env_v1_4afbe_00000_0_2025-07-08_12-54-48"
 shell_dir = os.path.join(checkpoints_dir, "shell")

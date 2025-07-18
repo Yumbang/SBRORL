@@ -1,5 +1,6 @@
 # %%
 import os
+from copy import deepcopy
 
 import numpy as np
 import polars as pl
@@ -1216,7 +1217,6 @@ plt.savefig("C_feed_Cycle_length_NBR.pdf")
 plt.show()
 
 # %%
-from copy import deepcopy
 
 print(len(cycle_length_samples_without_curriculum["Episode"].unique()))
 

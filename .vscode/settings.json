@@ -24,5 +24,10 @@
         "editor.formatOnSave": true,
         "editor.defaultFormatter": "charliermarsh.ruff"
     },
-    "python.analysis.exclude": ["result/**", "figure/**"]
+    "python.analysis.exclude": [
+        "result/**",
+        "figure/**"
+    ],
+    "outline.problems.colors": false,
+    "problems.visibility": true
 }

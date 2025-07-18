@@ -5,6 +5,7 @@ import argparse
 
 import numpy as np
 import polars as pl
+
 import shap
 import torch
 from ray.rllib.algorithms.ppo.torch.default_ppo_torch_rl_module import (
@@ -60,13 +61,7 @@ def main(checkpoints_path, checkpoint_number):
 
     observations_to_explain_numpy = np.concatenate(observations_to_explain)
 
-    # %%
-    def critic_wrapper(obs_numpy):
-        obs_tensor = torch.tensor(obs_numpy, device=device)
-        encoder_output = ppomodule.encoder.critic_encoder({"obs": obs_tensor})
-        value_prediction = ppomodule.vf(encoder_output["encoder_out"])
-        return value_prediction.cpu().detach().numpy()
-
+    # %#
     def predict_fn(numpy_data):
         """
         A single, efficient function that takes a NumPy array of observations,
@@ -88,25 +83,20 @@ def main(checkpoints_path, checkpoint_number):
 
     # %%
     print("Summarizing background data with k-means...")
-    # background_summary = shap.kmeans(observations_numpy, 250)
+    background_summary = shap.kmeans(observations_numpy, 250)
 
-    # with open(os.path.join(reader.figure_dir, "background_summary.pkl"), "wb") as f:
-    #     pkl.dump(background_summary, f)
+    with open(os.path.join(reader.figure_dir, "background_summary.pkl"), "wb") as f:
+        pkl.dump(background_summary, f)
 
-    with open(os.path.join(reader.figure_dir, "background_summary.pkl"), "rb") as f:
-        background_summary = pkl.load(f)
+    # with open(os.path.join(reader.figure_dir, "background_summary.pkl"), "rb") as f:
+    #     background_summary = pkl.load(f)
 
     # %%
 
     # --- 2. Create the explainer using the SMALL summary ---
-    # This will now be memory-efficient and will not crash the kernel.
-    # explainer = shap.DeepExplainer(wrapped_critic, background_summary_tensor)
     explainer = KernelExplainer(predict_fn, background_summary)
 
     print("SHAP explainer created successfully with summarized background data.")
-
-    # --- 3. You can now calculate SHAP values as before ---
-    # shap_values = explainer.shap_values(observations_to_explain_tensor)
 
     # %%
     batch_size = 2048  # You can adjust this based on your GPU memory

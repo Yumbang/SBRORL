@@ -1,6 +1,7 @@
 # %%
 import os
 import re
+import sys
 
 import numpy as np
 import pandas as pd
@@ -8,7 +9,7 @@ import polars as pl
 import scikit_posthocs as sp
 import seaborn as sns
 from matplotlib import pyplot as plt
-from scipy.stats import friedmanchisquare, f_oneway
+from scipy.stats import f_oneway, friedmanchisquare
 from statsmodels.stats.multicomp import pairwise_tukeyhsd
 from tqdm import tqdm
 
@@ -474,7 +475,6 @@ class EvalResultReader:
 
 
 # %%
-import sys
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
